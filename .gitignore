@@ -1,0 +1,27 @@
+# Binaries
+bin/
+*.exe
+/mcper
+
+# Build artifacts
+dist/
+*.wasm
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+coverage.out
+coverage.html
+
+# Local config
+.mcper/
+.mcp.json
+*.local.json

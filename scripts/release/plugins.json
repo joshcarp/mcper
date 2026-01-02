@@ -1,0 +1,44 @@
+{
+  "plugins": [
+    {
+      "name": "hello",
+      "description": "Simple hello world MCP plugin for testing",
+      "version": "0.1.0",
+      "author": "mcper",
+      "source": "https://github.com/joshcarp/mcper/releases/download/v0.1.0/plugin-hello.wasm",
+      "env": []
+    },
+    {
+      "name": "linkedin",
+      "description": "LinkedIn API integration - search profiles, send messages, manage connections",
+      "version": "0.1.0",
+      "author": "mcper",
+      "source": "https://github.com/joshcarp/mcper/releases/download/v0.1.0/plugin-linkedin.wasm",
+      "env": ["LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET"]
+    },
+    {
+      "name": "github",
+      "description": "GitHub API integration - manage repos, issues, PRs, and more",
+      "version": "0.1.0",
+      "author": "mcper",
+      "source": "https://github.com/joshcarp/mcper/releases/download/v0.1.0/plugin-github.wasm",
+      "env": ["GITHUB_TOKEN"]
+    },
+    {
+      "name": "gmail",
+      "description": "Gmail API integration - read, send, and manage emails",
+      "version": "0.1.0",
+      "author": "mcper",
+      "source": "https://github.com/joshcarp/mcper/releases/download/v0.1.0/plugin-gmail.wasm",
+      "env": ["GMAIL_ACCESS_TOKEN"]
+    },
+    {
+      "name": "azuredevops",
+      "description": "Azure DevOps integration - manage projects, repos, work items, PRs, and pipelines",
+      "version": "0.1.0",
+      "author": "mcper",
+      "source": "https://github.com/joshcarp/mcper/releases/download/v0.1.0/plugin-azuredevops.wasm",
+      "env": ["AZURE_DEVOPS_PAT", "AZURE_DEVOPS_ORG"]
+    }
+  ]
+}
