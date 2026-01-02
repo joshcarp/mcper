@@ -96,10 +96,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	log.Printf("Config: %s", configJSON)
 
-	if len(config.Plugins) == 0 {
-		log.Printf("ERROR: no plugins configured")
-		return fmt.Errorf("no plugins configured")
-	}
 	log.Printf("Loading %d plugin(s)...", len(config.Plugins))
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -111,6 +107,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Create MCP server
 	mcpServer := mcp.NewServer("mcper", mcper.Version, nil)
+
+	// Register native mcper tools (registry, cache, etc.)
+	registerNativeTools(mcpServer)
+	log.Printf("Registered native mcper tools")
 
 	// Track sessions for cleanup
 	sessions := make(map[string]*mcp.ClientSession)
