@@ -3,6 +3,7 @@ package mcper
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -136,4 +137,50 @@ func IsLoggedIn() bool {
 		return false
 	}
 	return creds.IsValid()
+}
+
+// RemoteServer represents a server configured in mcper-cloud
+type RemoteServer struct {
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	URL         string `json:"url"`
+	Description string `json:"description"`
+	Enabled     bool   `json:"enabled"`
+}
+
+// FetchRemoteServers fetches the user's configured servers from mcper-cloud
+func FetchRemoteServers(creds *Credentials) ([]RemoteServer, error) {
+	if creds == nil || !creds.IsValid() {
+		return nil, fmt.Errorf("invalid credentials")
+	}
+
+	apiURL := creds.CloudURL + "/api/v1/servers"
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+creds.APIKey)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch servers: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server returned status %d", resp.StatusCode)
+	}
+
+	var response struct {
+		Servers []RemoteServer `json:"servers"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return response.Servers, nil
 }

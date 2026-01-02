@@ -104,6 +104,21 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if err == nil && creds.IsValid() {
 		proxyURL = creds.GetProxyURL()
 		log.Printf("Logged in as %s, using cloud proxy for OAuth tokens: %s", creds.UserEmail, proxyURL)
+
+		// Fetch remote servers from mcper-cloud
+		remoteServers, err := mcper.FetchRemoteServers(creds)
+		if err != nil {
+			log.Printf("Warning: failed to fetch remote servers: %v", err)
+		} else if len(remoteServers) > 0 {
+			log.Printf("Fetched %d remote server(s) from mcper-cloud", len(remoteServers))
+			for _, srv := range remoteServers {
+				// Add remote servers to config
+				config.Plugins = append(config.Plugins, mcper.PluginConfig{
+					Source: srv.URL,
+				})
+				log.Printf("  - %s (%s): %s", srv.Name, srv.Type, srv.URL)
+			}
+		}
 	} else {
 		log.Printf("Not logged in to mcper-cloud, plugins will use direct HTTP (env var auth)")
 	}
