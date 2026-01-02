@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 jobs:
-  build:
+  build-cli:
     strategy:
       matrix:
         include:
@@ -40,7 +40,7 @@ jobs:
         with:
           go-version: '1.23'
 
-      - name: Build
+      - name: Build CLI
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -53,8 +53,38 @@ jobs:
           name: mcper-${{ matrix.suffix }}
           path: mcper-${{ matrix.suffix }}
 
+  build-plugins:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Build WASM plugins
+        run: |
+          mkdir -p wasm
+          GOOS=wasip1 GOARCH=wasm go build -o wasm/plugin-hello.wasm ./plugins/hello/
+          GOOS=wasip1 GOARCH=wasm go build -o wasm/plugin-linkedin.wasm ./plugins/linkedin/
+          GOOS=wasip1 GOARCH=wasm go build -o wasm/plugin-gmail.wasm ./plugins/gmail/
+          GOOS=wasip1 GOARCH=wasm go build -o wasm/plugin-github.wasm ./plugins/github/
+          GOOS=wasip1 GOARCH=wasm go build -o wasm/plugin-azuredevops.wasm ./plugins/azuredevops/
+          GOOS=wasip1 GOARCH=wasm go build -o wasm/plugin-currency.wasm ./plugins/currency/
+
+      - name: Upload plugin artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-plugins
+          path: wasm/*.wasm
+
   release:
-    needs: build
+    needs: [build-cli, build-plugins]
     runs-on: ubuntu-latest
     permissions:
       contents: write
