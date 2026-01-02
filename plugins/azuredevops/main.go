@@ -105,6 +105,42 @@ func main() {
 		Description: "Create a new pull request",
 	}, createPullRequestHandler)
 
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "azdo_merge_pull_request",
+		Description: "Complete (merge) a pull request",
+	}, mergePullRequestHandler)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "azdo_add_pr_comment",
+		Description: "Add a comment to a pull request",
+	}, addPRCommentHandler)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "azdo_list_pr_comments",
+		Description: "List comments (threads) on a pull request",
+	}, listPRCommentsHandler)
+
+	// Wiki tools
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "azdo_list_wikis",
+		Description: "List wikis in a project",
+	}, listWikisHandler)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "azdo_get_wiki_page",
+		Description: "Get content of a wiki page",
+	}, getWikiPageHandler)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "azdo_create_wiki_page",
+		Description: "Create a new wiki page",
+	}, createWikiPageHandler)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "azdo_update_wiki_page",
+		Description: "Update an existing wiki page",
+	}, updateWikiPageHandler)
+
 	// Pipeline tools
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "azdo_list_pipelines",
@@ -214,6 +250,58 @@ type CreatePullRequestParams struct {
 	TargetBranch string `json:"target_branch"`
 	Title        string `json:"title"`
 	Description  string `json:"description,omitempty"`
+}
+
+type MergePullRequestParams struct {
+	Project          string `json:"project"`
+	Repository       string `json:"repository"`
+	PullRequestID    int    `json:"pull_request_id"`
+	MergeStrategy    string `json:"merge_strategy,omitempty"`    // squash, rebase, rebaseMerge, noFastForward (default: squash)
+	DeleteSourceBranch bool  `json:"delete_source_branch,omitempty"` // Delete source branch after merge
+	TransitionWorkItems bool `json:"transition_work_items,omitempty"` // Transition linked work items
+}
+
+type AddPRCommentParams struct {
+	Project       string `json:"project"`
+	Repository    string `json:"repository"`
+	PullRequestID int    `json:"pull_request_id"`
+	Content       string `json:"content"`                   // Comment text (markdown supported)
+	FilePath      string `json:"file_path,omitempty"`       // Optional: file to comment on
+	LineNumber    int    `json:"line_number,omitempty"`     // Optional: line number for file comment
+	Status        string `json:"status,omitempty"`          // active, fixed, pending, won't fix, closed (default: active)
+}
+
+type ListPRCommentsParams struct {
+	Project       string `json:"project"`
+	Repository    string `json:"repository"`
+	PullRequestID int    `json:"pull_request_id"`
+}
+
+type ListWikisParams struct {
+	Project string `json:"project"`
+}
+
+type GetWikiPageParams struct {
+	Project        string `json:"project"`
+	WikiIdentifier string `json:"wiki_identifier"` // Wiki name or ID
+	Path           string `json:"path"`            // Page path (e.g., "/Home" or "/Getting Started/Overview")
+	Version        string `json:"version,omitempty"` // Git version (branch, tag, or commit)
+	IncludeContent bool   `json:"include_content,omitempty"` // Include page content (default: true)
+}
+
+type CreateWikiPageParams struct {
+	Project        string `json:"project"`
+	WikiIdentifier string `json:"wiki_identifier"` // Wiki name or ID
+	Path           string `json:"path"`            // Page path
+	Content        string `json:"content"`         // Markdown content
+}
+
+type UpdateWikiPageParams struct {
+	Project        string `json:"project"`
+	WikiIdentifier string `json:"wiki_identifier"` // Wiki name or ID
+	Path           string `json:"path"`            // Page path
+	Content        string `json:"content"`         // New markdown content
+	ETag           string `json:"etag,omitempty"`  // ETag for concurrency control (optional)
 }
 
 type ListPipelinesParams struct {
@@ -471,8 +559,9 @@ func listWorkItemsHandler(ctx context.Context, cc *mcp.ServerSession, params *mc
 		top = 20
 	}
 
-	endpoint := fmt.Sprintf("%s/%s/_apis/wit/wiql?api-version=%s&$top=%d",
-		client.baseURL(), url.PathEscape(args.Project), azureDevOpsAPIVersion, top)
+	queryParams := url.Values{}
+	queryParams.Set("$top", fmt.Sprintf("%d", top))
+	endpoint := client.buildURL([]string{args.Project, "_apis", "wit", "wiql"}, queryParams)
 
 	payload := map[string]string{"query": query}
 	payloadBytes, _ := json.Marshal(payload)
@@ -503,8 +592,9 @@ func listWorkItemsHandler(ctx context.Context, cc *mcp.ServerSession, params *mc
 		ids = append(ids, fmt.Sprintf("%d", wi.ID))
 	}
 
-	detailsEndpoint := fmt.Sprintf("%s/_apis/wit/workitems?ids=%s&api-version=%s",
-		client.baseURL(), strings.Join(ids, ","), azureDevOpsAPIVersion)
+	detailsParams := url.Values{}
+	detailsParams.Set("ids", strings.Join(ids, ","))
+	detailsEndpoint := client.buildURL([]string{"_apis", "wit", "workitems"}, detailsParams)
 
 	detailsResp, err := client.makeRequest("GET", detailsEndpoint, nil)
 	if err != nil {
@@ -1018,6 +1108,524 @@ func createPullRequestHandler(ctx context.Context, cc *mcp.ServerSession, params
 	return successResult(fmt.Sprintf("Pull request #%d created successfully!\nTitle: %s", pr.PullRequestID, pr.Title)), nil
 }
 
+func mergePullRequestHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[MergePullRequestParams]) (*mcp.CallToolResultFor[any], error) {
+	args := params.Arguments
+	client := NewAzureDevOpsClient()
+
+	if err := client.validate(); err != nil {
+		return errorResult(err.Error()), nil
+	}
+
+	if args.Project == "" || args.Repository == "" || args.PullRequestID == 0 {
+		return errorResult("project, repository, and pull_request_id are required"), nil
+	}
+
+	// First, get the PR to get the last merge source commit
+	getEndpoint := fmt.Sprintf("%s/%s/_apis/git/repositories/%s/pullrequests/%d?api-version=%s",
+		client.baseURL(), url.PathEscape(args.Project), url.PathEscape(args.Repository), args.PullRequestID, azureDevOpsAPIVersion)
+
+	getResp, err := client.makeRequest("GET", getEndpoint, nil)
+	if err != nil {
+		return errorResult("Failed to get pull request: " + err.Error()), nil
+	}
+
+	var existingPR struct {
+		LastMergeSourceCommit struct {
+			CommitID string `json:"commitId"`
+		} `json:"lastMergeSourceCommit"`
+	}
+
+	if err := json.Unmarshal(getResp, &existingPR); err != nil {
+		return errorResult("Failed to parse pull request: " + err.Error()), nil
+	}
+
+	// Determine merge strategy
+	mergeStrategy := args.MergeStrategy
+	if mergeStrategy == "" {
+		mergeStrategy = "squash"
+	}
+
+	// Map friendly names to API values
+	mergeStrategyMap := map[string]int{
+		"squash":        3,
+		"rebase":        2,
+		"rebaseMerge":   4,
+		"noFastForward": 1,
+	}
+
+	strategyValue, ok := mergeStrategyMap[mergeStrategy]
+	if !ok {
+		return errorResult(fmt.Sprintf("Invalid merge strategy: %s. Use: squash, rebase, rebaseMerge, or noFastForward", mergeStrategy)), nil
+	}
+
+	// Complete the PR
+	endpoint := fmt.Sprintf("%s/%s/_apis/git/repositories/%s/pullrequests/%d?api-version=%s",
+		client.baseURL(), url.PathEscape(args.Project), url.PathEscape(args.Repository), args.PullRequestID, azureDevOpsAPIVersion)
+
+	completionOptions := map[string]interface{}{
+		"mergeStrategy": strategyValue,
+	}
+
+	if args.DeleteSourceBranch {
+		completionOptions["deleteSourceBranch"] = true
+	}
+
+	if args.TransitionWorkItems {
+		completionOptions["transitionWorkItems"] = true
+	}
+
+	payload := map[string]interface{}{
+		"status":                 "completed",
+		"lastMergeSourceCommit": map[string]string{"commitId": existingPR.LastMergeSourceCommit.CommitID},
+		"completionOptions":      completionOptions,
+	}
+
+	payloadBytes, _ := json.Marshal(payload)
+
+	resp, err := client.makeRequest("PATCH", endpoint, strings.NewReader(string(payloadBytes)))
+	if err != nil {
+		return errorResult("Failed to merge pull request: " + err.Error()), nil
+	}
+
+	var mergedPR struct {
+		PullRequestID int    `json:"pullRequestId"`
+		Status        string `json:"status"`
+		MergeStatus   string `json:"mergeStatus"`
+	}
+
+	if err := json.Unmarshal(resp, &mergedPR); err != nil {
+		return errorResult("Failed to parse response: " + err.Error()), nil
+	}
+
+	return successResult(fmt.Sprintf("Pull request #%d merged successfully!\nStatus: %s\nMerge Status: %s", mergedPR.PullRequestID, mergedPR.Status, mergedPR.MergeStatus)), nil
+}
+
+func addPRCommentHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[AddPRCommentParams]) (*mcp.CallToolResultFor[any], error) {
+	args := params.Arguments
+	client := NewAzureDevOpsClient()
+
+	if err := client.validate(); err != nil {
+		return errorResult(err.Error()), nil
+	}
+
+	if args.Project == "" || args.Repository == "" || args.PullRequestID == 0 || args.Content == "" {
+		return errorResult("project, repository, pull_request_id, and content are required"), nil
+	}
+
+	endpoint := fmt.Sprintf("%s/%s/_apis/git/repositories/%s/pullrequests/%d/threads?api-version=%s",
+		client.baseURL(), url.PathEscape(args.Project), url.PathEscape(args.Repository), args.PullRequestID, azureDevOpsAPIVersion)
+
+	// Build comment
+	comment := map[string]interface{}{
+		"parentCommentId": 0,
+		"content":         args.Content,
+		"commentType":     1, // text
+	}
+
+	// Build thread
+	thread := map[string]interface{}{
+		"comments": []interface{}{comment},
+		"status":   1, // active by default
+	}
+
+	// Map status string to API value
+	if args.Status != "" {
+		statusMap := map[string]int{
+			"active":    1,
+			"fixed":     2,
+			"wontfix":   3,
+			"closed":    4,
+			"pending":   6,
+		}
+		if statusVal, ok := statusMap[strings.ToLower(args.Status)]; ok {
+			thread["status"] = statusVal
+		}
+	}
+
+	// Add thread context if file path is provided
+	if args.FilePath != "" {
+		threadContext := map[string]interface{}{
+			"filePath": args.FilePath,
+		}
+		if args.LineNumber > 0 {
+			threadContext["rightFileStart"] = map[string]int{
+				"line":   args.LineNumber,
+				"offset": 1,
+			}
+			threadContext["rightFileEnd"] = map[string]int{
+				"line":   args.LineNumber,
+				"offset": 1,
+			}
+		}
+		thread["threadContext"] = threadContext
+	}
+
+	payloadBytes, _ := json.Marshal(thread)
+
+	resp, err := client.makeRequest("POST", endpoint, strings.NewReader(string(payloadBytes)))
+	if err != nil {
+		return errorResult("Failed to add comment: " + err.Error()), nil
+	}
+
+	var createdThread struct {
+		ID       int `json:"id"`
+		Comments []struct {
+			ID int `json:"id"`
+		} `json:"comments"`
+	}
+
+	if err := json.Unmarshal(resp, &createdThread); err != nil {
+		return errorResult("Failed to parse response: " + err.Error()), nil
+	}
+
+	return successResult(fmt.Sprintf("Comment added successfully!\nThread ID: %d", createdThread.ID)), nil
+}
+
+func listPRCommentsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ListPRCommentsParams]) (*mcp.CallToolResultFor[any], error) {
+	args := params.Arguments
+	client := NewAzureDevOpsClient()
+
+	if err := client.validate(); err != nil {
+		return errorResult(err.Error()), nil
+	}
+
+	if args.Project == "" || args.Repository == "" || args.PullRequestID == 0 {
+		return errorResult("project, repository, and pull_request_id are required"), nil
+	}
+
+	endpoint := fmt.Sprintf("%s/%s/_apis/git/repositories/%s/pullrequests/%d/threads?api-version=%s",
+		client.baseURL(), url.PathEscape(args.Project), url.PathEscape(args.Repository), args.PullRequestID, azureDevOpsAPIVersion)
+
+	resp, err := client.makeRequest("GET", endpoint, nil)
+	if err != nil {
+		return errorResult("Failed to list comments: " + err.Error()), nil
+	}
+
+	var result struct {
+		Count int `json:"count"`
+		Value []struct {
+			ID            int    `json:"id"`
+			Status        string `json:"status"`
+			ThreadContext *struct {
+				FilePath string `json:"filePath"`
+			} `json:"threadContext"`
+			Comments []struct {
+				ID        int    `json:"id"`
+				Content   string `json:"content"`
+				Author    struct {
+					DisplayName string `json:"displayName"`
+				} `json:"author"`
+				PublishedDate string `json:"publishedDate"`
+				CommentType   string `json:"commentType"`
+			} `json:"comments"`
+			IsDeleted bool `json:"isDeleted"`
+		} `json:"value"`
+	}
+
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return errorResult("Failed to parse response: " + err.Error()), nil
+	}
+
+	var output strings.Builder
+	output.WriteString(fmt.Sprintf("Comments on PR #%d:\n\n", args.PullRequestID))
+
+	threadCount := 0
+	for _, thread := range result.Value {
+		if thread.IsDeleted {
+			continue
+		}
+
+		// Skip system-generated threads (like merge status)
+		hasUserComments := false
+		for _, c := range thread.Comments {
+			if c.CommentType != "system" {
+				hasUserComments = true
+				break
+			}
+		}
+		if !hasUserComments {
+			continue
+		}
+
+		threadCount++
+		statusIcon := "💬"
+		switch thread.Status {
+		case "fixed":
+			statusIcon = "✅"
+		case "wontFix":
+			statusIcon = "🚫"
+		case "closed":
+			statusIcon = "🔒"
+		case "pending":
+			statusIcon = "⏳"
+		}
+
+		output.WriteString(fmt.Sprintf("%s Thread #%d", statusIcon, thread.ID))
+		if thread.ThreadContext != nil && thread.ThreadContext.FilePath != "" {
+			output.WriteString(fmt.Sprintf(" on %s", thread.ThreadContext.FilePath))
+		}
+		output.WriteString("\n")
+
+		for _, comment := range thread.Comments {
+			if comment.CommentType == "system" {
+				continue
+			}
+			output.WriteString(fmt.Sprintf("   @%s (%s):\n", comment.Author.DisplayName, comment.PublishedDate))
+			// Indent content
+			lines := strings.Split(comment.Content, "\n")
+			for _, line := range lines {
+				output.WriteString(fmt.Sprintf("   %s\n", line))
+			}
+			output.WriteString("\n")
+		}
+	}
+
+	if threadCount == 0 {
+		output.WriteString("No comments found.")
+	}
+
+	return successResult(output.String()), nil
+}
+
+func listWikisHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ListWikisParams]) (*mcp.CallToolResultFor[any], error) {
+	args := params.Arguments
+	client := NewAzureDevOpsClient()
+
+	if err := client.validate(); err != nil {
+		return errorResult(err.Error()), nil
+	}
+
+	if args.Project == "" {
+		return errorResult("project is required"), nil
+	}
+
+	endpoint := fmt.Sprintf("%s/%s/_apis/wiki/wikis?api-version=%s",
+		client.baseURL(), url.PathEscape(args.Project), azureDevOpsAPIVersion)
+
+	resp, err := client.makeRequest("GET", endpoint, nil)
+	if err != nil {
+		return errorResult("Failed to list wikis: " + err.Error()), nil
+	}
+
+	var result struct {
+		Count int `json:"count"`
+		Value []struct {
+			ID         string `json:"id"`
+			Name       string `json:"name"`
+			Type       string `json:"type"` // projectWiki or codeWiki
+			MappedPath string `json:"mappedPath,omitempty"`
+			URL        string `json:"url"`
+		} `json:"value"`
+	}
+
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return errorResult("Failed to parse response: " + err.Error()), nil
+	}
+
+	var output strings.Builder
+	output.WriteString(fmt.Sprintf("Found %d wiki(s) in %s:\n\n", result.Count, args.Project))
+
+	for i, wiki := range result.Value {
+		wikiType := "📚 Project Wiki"
+		if wiki.Type == "codeWiki" {
+			wikiType = "📂 Code Wiki"
+		}
+
+		output.WriteString(fmt.Sprintf("%d. %s (%s)\n", i+1, wiki.Name, wikiType))
+		output.WriteString(fmt.Sprintf("   ID: %s\n", wiki.ID))
+		if wiki.MappedPath != "" {
+			output.WriteString(fmt.Sprintf("   Path: %s\n", wiki.MappedPath))
+		}
+		output.WriteString("\n")
+	}
+
+	return successResult(output.String()), nil
+}
+
+func getWikiPageHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetWikiPageParams]) (*mcp.CallToolResultFor[any], error) {
+	args := params.Arguments
+	client := NewAzureDevOpsClient()
+
+	if err := client.validate(); err != nil {
+		return errorResult(err.Error()), nil
+	}
+
+	if args.Project == "" || args.WikiIdentifier == "" || args.Path == "" {
+		return errorResult("project, wiki_identifier, and path are required"), nil
+	}
+
+	// Ensure path starts with /
+	path := args.Path
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
+	queryParams := url.Values{}
+	queryParams.Set("api-version", azureDevOpsAPIVersion)
+	queryParams.Set("path", path)
+	queryParams.Set("includeContent", "true")
+	if args.Version != "" {
+		queryParams.Set("versionDescriptor.version", args.Version)
+	}
+
+	endpoint := fmt.Sprintf("%s/%s/_apis/wiki/wikis/%s/pages?%s",
+		client.baseURL(), url.PathEscape(args.Project), url.PathEscape(args.WikiIdentifier), queryParams.Encode())
+
+	resp, err := client.makeRequest("GET", endpoint, nil)
+	if err != nil {
+		return errorResult("Failed to get wiki page: " + err.Error()), nil
+	}
+
+	var page struct {
+		ID         int    `json:"id"`
+		Path       string `json:"path"`
+		Content    string `json:"content"`
+		GitItemPath string `json:"gitItemPath"`
+		SubPages   []struct {
+			Path string `json:"path"`
+		} `json:"subPages,omitempty"`
+		IsParentPage bool `json:"isParentPage"`
+	}
+
+	if err := json.Unmarshal(resp, &page); err != nil {
+		return errorResult("Failed to parse response: " + err.Error()), nil
+	}
+
+	var output strings.Builder
+	output.WriteString(fmt.Sprintf("Wiki Page: %s\n\n", page.Path))
+	output.WriteString(fmt.Sprintf("ID: %d\n", page.ID))
+	if page.GitItemPath != "" {
+		output.WriteString(fmt.Sprintf("Git Path: %s\n", page.GitItemPath))
+	}
+
+	if len(page.SubPages) > 0 {
+		output.WriteString(fmt.Sprintf("\nSub-pages (%d):\n", len(page.SubPages)))
+		for _, sub := range page.SubPages {
+			output.WriteString(fmt.Sprintf("  - %s\n", sub.Path))
+		}
+	}
+
+	output.WriteString("\n--- Content ---\n")
+	if page.Content != "" {
+		output.WriteString(page.Content)
+	} else {
+		output.WriteString("(No content)")
+	}
+
+	return successResult(output.String()), nil
+}
+
+func createWikiPageHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[CreateWikiPageParams]) (*mcp.CallToolResultFor[any], error) {
+	args := params.Arguments
+	client := NewAzureDevOpsClient()
+
+	if err := client.validate(); err != nil {
+		return errorResult(err.Error()), nil
+	}
+
+	if args.Project == "" || args.WikiIdentifier == "" || args.Path == "" || args.Content == "" {
+		return errorResult("project, wiki_identifier, path, and content are required"), nil
+	}
+
+	// Ensure path starts with /
+	path := args.Path
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
+	queryParams := url.Values{}
+	queryParams.Set("api-version", azureDevOpsAPIVersion)
+	queryParams.Set("path", path)
+
+	endpoint := fmt.Sprintf("%s/%s/_apis/wiki/wikis/%s/pages?%s",
+		client.baseURL(), url.PathEscape(args.Project), url.PathEscape(args.WikiIdentifier), queryParams.Encode())
+
+	payload := map[string]string{
+		"content": args.Content,
+	}
+	payloadBytes, _ := json.Marshal(payload)
+
+	resp, err := client.makeRequest("PUT", endpoint, strings.NewReader(string(payloadBytes)))
+	if err != nil {
+		return errorResult("Failed to create wiki page: " + err.Error()), nil
+	}
+
+	var page struct {
+		ID   int    `json:"id"`
+		Path string `json:"path"`
+	}
+
+	if err := json.Unmarshal(resp, &page); err != nil {
+		return errorResult("Failed to parse response: " + err.Error()), nil
+	}
+
+	return successResult(fmt.Sprintf("Wiki page created successfully!\nPath: %s\nID: %d", page.Path, page.ID)), nil
+}
+
+func updateWikiPageHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[UpdateWikiPageParams]) (*mcp.CallToolResultFor[any], error) {
+	args := params.Arguments
+	client := NewAzureDevOpsClient()
+
+	if err := client.validate(); err != nil {
+		return errorResult(err.Error()), nil
+	}
+
+	if args.Project == "" || args.WikiIdentifier == "" || args.Path == "" || args.Content == "" {
+		return errorResult("project, wiki_identifier, path, and content are required"), nil
+	}
+
+	// Ensure path starts with /
+	path := args.Path
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
+	// First, get the current page to retrieve ETag if not provided
+	etag := args.ETag
+	if etag == "" {
+		getParams := url.Values{}
+		getParams.Set("api-version", azureDevOpsAPIVersion)
+		getParams.Set("path", path)
+
+		getEndpoint := fmt.Sprintf("%s/%s/_apis/wiki/wikis/%s/pages?%s",
+			client.baseURL(), url.PathEscape(args.Project), url.PathEscape(args.WikiIdentifier), getParams.Encode())
+
+		_, etagHeader, err := client.makeRequestWithETag("GET", getEndpoint, nil)
+		if err != nil {
+			return errorResult("Failed to get existing page: " + err.Error()), nil
+		}
+		etag = etagHeader
+	}
+
+	queryParams := url.Values{}
+	queryParams.Set("api-version", azureDevOpsAPIVersion)
+	queryParams.Set("path", path)
+
+	endpoint := fmt.Sprintf("%s/%s/_apis/wiki/wikis/%s/pages?%s",
+		client.baseURL(), url.PathEscape(args.Project), url.PathEscape(args.WikiIdentifier), queryParams.Encode())
+
+	payload := map[string]string{
+		"content": args.Content,
+	}
+	payloadBytes, _ := json.Marshal(payload)
+
+	resp, err := client.makeRequestWithIfMatch("PUT", endpoint, strings.NewReader(string(payloadBytes)), etag)
+	if err != nil {
+		return errorResult("Failed to update wiki page: " + err.Error()), nil
+	}
+
+	var page struct {
+		ID   int    `json:"id"`
+		Path string `json:"path"`
+	}
+
+	if err := json.Unmarshal(resp, &page); err != nil {
+		return errorResult("Failed to parse response: " + err.Error()), nil
+	}
+
+	return successResult(fmt.Sprintf("Wiki page updated successfully!\nPath: %s\nID: %d", page.Path, page.ID)), nil
+}
+
 func listPipelinesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ListPipelinesParams]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
 	client := NewAzureDevOpsClient()
@@ -1417,6 +2025,27 @@ func (c *AzureDevOpsClient) baseURL() string {
 	return fmt.Sprintf("https://dev.azure.com/%s", c.Organization)
 }
 
+// buildURL constructs a properly encoded URL for Azure DevOps API calls
+func (c *AzureDevOpsClient) buildURL(pathSegments []string, queryParams url.Values) string {
+	u := &url.URL{
+		Scheme: "https",
+		Host:   "dev.azure.com",
+	}
+
+	// Build path with proper encoding - prepend organization
+	allSegments := append([]string{c.Organization}, pathSegments...)
+	u.Path = "/" + strings.Join(allSegments, "/")
+
+	// Add query parameters
+	if queryParams == nil {
+		queryParams = url.Values{}
+	}
+	queryParams.Set("api-version", azureDevOpsAPIVersion)
+	u.RawQuery = queryParams.Encode()
+
+	return u.String()
+}
+
 func (c *AzureDevOpsClient) makeRequest(method, endpoint string, body io.Reader) ([]byte, error) {
 	return c.makeRequestWithContentType(method, endpoint, body, "application/json")
 }
@@ -1432,6 +2061,68 @@ func (c *AzureDevOpsClient) makeRequestWithContentType(method, endpoint string, 
 	req.Header.Set("Authorization", "Basic "+auth)
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return respBody, nil
+}
+
+func (c *AzureDevOpsClient) makeRequestWithETag(method, endpoint string, body io.Reader) ([]byte, string, error) {
+	req, err := http.NewRequest(method, endpoint, body)
+	if err != nil {
+		return nil, "", err
+	}
+
+	auth := base64.StdEncoding.EncodeToString([]byte(":" + c.PAT))
+	req.Header.Set("Authorization", "Basic "+auth)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if resp.StatusCode >= 400 {
+		return nil, "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	etag := resp.Header.Get("ETag")
+	return respBody, etag, nil
+}
+
+func (c *AzureDevOpsClient) makeRequestWithIfMatch(method, endpoint string, body io.Reader, etag string) ([]byte, error) {
+	req, err := http.NewRequest(method, endpoint, body)
+	if err != nil {
+		return nil, err
+	}
+
+	auth := base64.StdEncoding.EncodeToString([]byte(":" + c.PAT))
+	req.Header.Set("Authorization", "Basic "+auth)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	if etag != "" {
+		req.Header.Set("If-Match", etag)
+	}
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
