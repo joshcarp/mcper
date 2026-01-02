@@ -3,7 +3,7 @@
     {
       "name": "hello",
       "description": "Simple hello world MCP plugin for testing",
-      "version": "0.5.0",
+      "version": "0.5.1",
       "author": "mcper",
       "source": "https://storage.googleapis.com/mcper-releases/latest/plugin-hello.wasm",
       "env": []
@@ -11,7 +11,7 @@
     {
       "name": "linkedin",
       "description": "LinkedIn API integration - search profiles, send messages, manage connections",
-      "version": "0.5.0",
+      "version": "0.5.1",
       "author": "mcper",
       "source": "https://storage.googleapis.com/mcper-releases/latest/plugin-linkedin.wasm",
       "env": ["LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET"]
@@ -19,7 +19,7 @@
     {
       "name": "github",
       "description": "GitHub API integration - manage repos, issues, PRs, and more",
-      "version": "0.5.0",
+      "version": "0.5.1",
       "author": "mcper",
       "source": "https://storage.googleapis.com/mcper-releases/latest/plugin-github.wasm",
       "env": ["GITHUB_TOKEN"]
@@ -27,7 +27,7 @@
     {
       "name": "gmail",
       "description": "Gmail API integration - read, send, and manage emails",
-      "version": "0.5.0",
+      "version": "0.5.1",
       "author": "mcper",
       "source": "https://storage.googleapis.com/mcper-releases/latest/plugin-gmail.wasm",
       "env": ["GMAIL_ACCESS_TOKEN"]
@@ -35,7 +35,7 @@
     {
       "name": "azuredevops",
       "description": "Azure DevOps integration - manage projects, repos, work items, PRs, and pipelines",
-      "version": "0.5.0",
+      "version": "0.5.1",
       "author": "mcper",
       "source": "https://storage.googleapis.com/mcper-releases/latest/plugin-azuredevops.wasm",
       "env": ["AZURE_DEVOPS_PAT", "AZURE_DEVOPS_ORG"]
@@ -43,7 +43,7 @@
     {
       "name": "currency",
       "description": "Currency conversion using real-time exchange rates from Frankfurter API",
-      "version": "0.5.0",
+      "version": "0.5.1",
       "author": "mcper",
       "source": "https://storage.googleapis.com/mcper-releases/latest/plugin-currency.wasm",
       "env": []
