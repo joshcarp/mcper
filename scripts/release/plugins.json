@@ -39,6 +39,14 @@
       "author": "mcper",
       "source": "https://github.com/joshcarp/mcper/releases/download/v0.1.0/plugin-azuredevops.wasm",
       "env": ["AZURE_DEVOPS_PAT", "AZURE_DEVOPS_ORG"]
+    },
+    {
+      "name": "currency",
+      "description": "Currency conversion using real-time exchange rates from Frankfurter API",
+      "version": "0.1.0",
+      "author": "mcper",
+      "source": "https://github.com/joshcarp/mcper/releases/download/v0.1.0/plugin-currency.wasm",
+      "env": []
     }
   ]
 }
