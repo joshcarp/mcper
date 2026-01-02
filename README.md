@@ -28,6 +28,8 @@ mcper enable --claude
 3. Configure your MCP client to run `.mcper/start.sh`
 4. mcper aggregates all plugins into a single MCP server
 
+Once `.mcper/start.sh` is committed, anyone who clones the repo will have mcper auto-download and start - no setup required.
+
 ## Available Plugins
 
 | Plugin | Description | Required Env Vars |
