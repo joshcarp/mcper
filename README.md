@@ -65,7 +65,7 @@ After adding plugins, your `.mcp.json` will look like:
     "my-project": {
       "command": "./.mcper/start.sh",
       "env": {
-        "GITHUB_TOKEN": "your-token"
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
       }
     }
   }
