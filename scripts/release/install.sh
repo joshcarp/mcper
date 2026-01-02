@@ -1,11 +1,11 @@
 #!/bin/sh
 # MCPer install script
-# Usage: curl -sSL https://raw.githubusercontent.com/joshcarp/mcper/main/scripts/release/install.sh | sh
-#    or: curl -sSL https://raw.githubusercontent.com/joshcarp/mcper/main/scripts/release/install.sh | sh -s -- <version>
+# Usage: curl -sSL https://storage.googleapis.com/mcper-releases/install.sh | sh
+#    or: curl -sSL https://storage.googleapis.com/mcper-releases/install.sh | sh -s -- <version>
 set -eu
 
 # Configuration
-GITHUB_REPO="joshcarp/mcper"
+GCS_BUCKET="https://storage.googleapis.com/mcper-releases"
 INSTALL_DIR="${MCPER_INSTALL_DIR:-$HOME/.mcper/bin}"
 DEFAULT_VERSION="latest"
 
@@ -43,23 +43,6 @@ detect_platform() {
     printf '%s-%s' "$os" "$arch"
 }
 
-# Get version to install
-get_version() {
-    version="${1:-$DEFAULT_VERSION}"
-
-    if [ "$version" = "latest" ]; then
-        # Fetch latest release tag from GitHub API
-        latest_url="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
-        version=$(curl -sSL "$latest_url" 2>/dev/null | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/')
-
-        if [ -z "$version" ]; then
-            error "Failed to fetch latest version from GitHub"
-        fi
-    fi
-
-    printf '%s' "$version"
-}
-
 # Download and install mcper
 install_mcper() {
     version="$1"
@@ -74,9 +57,9 @@ install_mcper() {
             ;;
     esac
 
-    download_url="https://github.com/${GITHUB_REPO}/releases/download/v${version}/${asset_name}"
+    download_url="${GCS_BUCKET}/${version}/${asset_name}"
 
-    info "Downloading mcper v${version} for ${platform}..."
+    info "Downloading mcper (${version}) for ${platform}..."
     info "URL: $download_url"
 
     # Create install directory
@@ -92,7 +75,7 @@ install_mcper() {
     # Check if download was successful (not a 404 HTML page)
     if file "$tmp_file" | grep -q "HTML"; then
         rm -f "$tmp_file"
-        error "Failed to download mcper - release not found. Check https://github.com/${GITHUB_REPO}/releases"
+        error "Failed to download mcper - release not found. Check https://github.com/joshcarp/mcper/releases"
     fi
 
     # Make executable and move to install dir
@@ -181,7 +164,6 @@ main() {
     platform=$(detect_platform)
     info "Detected platform: $platform"
 
-    version=$(get_version "$version")
     info "Version: $version"
 
     install_mcper "$version" "$platform"

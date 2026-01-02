@@ -8,7 +8,7 @@ mcper lets you add MCP (Model Context Protocol) tools to any project with a sing
 
 ```bash
 # Install mcper
-curl -sSL https://raw.githubusercontent.com/joshcarp/mcper/main/scripts/release/install.sh | sh
+curl -sSL https://storage.googleapis.com/mcper-releases/install.sh | sh
 
 # Initialize in your project
 mcper init
@@ -38,6 +38,7 @@ Once `.mcper/start.sh` is committed, anyone who clones the repo will have mcper 
 | gmail | Gmail API - read, send emails | `GMAIL_ACCESS_TOKEN` |
 | linkedin | LinkedIn API - profiles, messages | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` |
 | azuredevops | Azure DevOps - projects, repos, pipelines | `AZURE_DEVOPS_PAT`, `AZURE_DEVOPS_ORG` |
+| currency | Currency conversion - real-time rates | (none) |
 
 ```bash
 # List all available plugins

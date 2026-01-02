@@ -17,7 +17,7 @@ const (
 	StartScriptName = "start.sh"
 
 	// InstallURL is the URL for the mcper install script
-	InstallURL = "https://raw.githubusercontent.com/joshcarp/mcper/main/scripts/release/install.sh"
+	InstallURL = "https://storage.googleapis.com/mcper-releases/install.sh"
 )
 
 // StartScriptTemplate is the template for .mcper/start.sh
@@ -42,7 +42,7 @@ CONFIG='%s'
 # Bootstrap mcper if needed (check binary directly, not PATH)
 if [ ! -x "$MCPER_BIN" ]; then
   echo "Installing mcper v${MCPER_VERSION}..." >> "$LOGFILE"
-  curl -sSL https://raw.githubusercontent.com/joshcarp/mcper/main/scripts/release/install.sh | sh -s -- "$MCPER_VERSION" >> "$LOGFILE" 2>&1 || true
+  curl -sSL https://storage.googleapis.com/mcper-releases/install.sh | sh -s -- "$MCPER_VERSION" >> "$LOGFILE" 2>&1 || true
 fi
 
 if [ ! -x "$MCPER_BIN" ]; then

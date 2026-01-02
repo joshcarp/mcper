@@ -9,11 +9,11 @@ import (
 )
 
 const (
-	// GitHubRepo is the GitHub repository for mcper
-	GitHubRepo = "joshcarp/mcper"
+	// GCSBucket is the Google Cloud Storage bucket for mcper releases
+	GCSBucket = "mcper-releases"
 
-	// GitHubReleasesURL is the base URL for GitHub releases
-	GitHubReleasesURL = "https://github.com/joshcarp/mcper/releases/download"
+	// GCSBaseURL is the base URL for GCS releases
+	GCSBaseURL = "https://storage.googleapis.com/mcper-releases"
 )
 
 // PluginType represents the type of plugin source
@@ -33,13 +33,15 @@ type ParsedPlugin struct {
 	RawURL  string // Original URL
 }
 
-// pluginURLPattern matches GitHub release WASM URLs like:
-// https://github.com/joshcarp/mcper/releases/download/v0.1.0/plugin-github.wasm
-var pluginURLPattern = regexp.MustCompile(`^https://github\.com/joshcarp/mcper/releases/download/v([^/]+)/plugin-([^/]+)\.wasm$`)
+// pluginURLPattern matches GCS WASM URLs like:
+// https://storage.googleapis.com/mcper-releases/v0.1.0/plugin-github.wasm
+// https://storage.googleapis.com/mcper-releases/latest/plugin-github.wasm
+var pluginURLPattern = regexp.MustCompile(`^https://storage\.googleapis\.com/mcper-releases/([^/]+)/plugin-([^/]+)\.wasm$`)
 
 // ParsePluginSource parses a plugin source URL
 // Supported formats:
-//   - https://github.com/joshcarp/mcper/releases/download/v0.1.0/plugin-linkedin.wasm
+//   - https://storage.googleapis.com/mcper-releases/latest/plugin-linkedin.wasm
+//   - https://storage.googleapis.com/mcper-releases/v0.1.0/plugin-linkedin.wasm
 //   - ./local.wasm
 //   - http://localhost:3000/mcp
 func ParsePluginSource(source string) (*ParsedPlugin, error) {
@@ -52,7 +54,7 @@ func ParsePluginSource(source string) (*ParsedPlugin, error) {
 		return parsed, nil
 	}
 
-	// Check for GitHub release WASM plugin URL
+	// Check for GCS WASM plugin URL
 	if matches := pluginURLPattern.FindStringSubmatch(source); matches != nil {
 		parsed.Type = PluginTypeWASM
 		parsed.Version = matches[1]
@@ -78,9 +80,13 @@ func ParsePluginSource(source string) (*ParsedPlugin, error) {
 	return parsed, nil
 }
 
-// PluginURL returns the full GitHub releases URL for a plugin name and version
+// PluginURL returns the full GCS URL for a plugin name and version
+// Use "latest" as version to get the latest release
 func PluginURL(name, version string) string {
-	return fmt.Sprintf("%s/v%s/plugin-%s.wasm", GitHubReleasesURL, version, name)
+	if version == "" {
+		version = "latest"
+	}
+	return fmt.Sprintf("%s/%s/plugin-%s.wasm", GCSBaseURL, version, name)
 }
 
 // CachePath returns the cache file path for a WASM plugin

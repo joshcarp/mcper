@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*'
 
+env:
+  GCS_BUCKET: mcper-releases
+
 jobs:
   build-cli:
     strategy:
@@ -99,7 +102,39 @@ jobs:
       - name: List artifacts
         run: ls -la dist/
 
-      - name: Create Release
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCS_SERVICE_ACCOUNT_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Get version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Upload to GCS
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+
+          # Upload CLI binaries
+          for file in dist/mcper-*; do
+            gsutil cp "$file" "gs://$GCS_BUCKET/$VERSION/$(basename $file)"
+            gsutil cp "$file" "gs://$GCS_BUCKET/latest/$(basename $file)"
+          done
+
+          # Upload WASM plugins
+          for file in dist/plugin-*.wasm; do
+            gsutil cp "$file" "gs://$GCS_BUCKET/$VERSION/$(basename $file)"
+            gsutil cp "$file" "gs://$GCS_BUCKET/latest/$(basename $file)"
+          done
+
+          # Make all files publicly readable
+          gsutil -m acl ch -r -u AllUsers:R "gs://$GCS_BUCKET/$VERSION/"
+          gsutil -m acl ch -r -u AllUsers:R "gs://$GCS_BUCKET/latest/"
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*

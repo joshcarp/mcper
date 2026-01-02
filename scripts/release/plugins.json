@@ -5,7 +5,7 @@
       "description": "Simple hello world MCP plugin for testing",
       "version": "0.1.0",
       "author": "mcper",
-      "source": "https://github.com/joshcarp/mcper/releases/download/v0.2.1/plugin-hello.wasm",
+      "source": "https://storage.googleapis.com/mcper-releases/latest/plugin-hello.wasm",
       "env": []
     },
     {
@@ -13,7 +13,7 @@
       "description": "LinkedIn API integration - search profiles, send messages, manage connections",
       "version": "0.1.0",
       "author": "mcper",
-      "source": "https://github.com/joshcarp/mcper/releases/download/v0.2.1/plugin-linkedin.wasm",
+      "source": "https://storage.googleapis.com/mcper-releases/latest/plugin-linkedin.wasm",
       "env": ["LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET"]
     },
     {
@@ -21,7 +21,7 @@
       "description": "GitHub API integration - manage repos, issues, PRs, and more",
       "version": "0.1.0",
       "author": "mcper",
-      "source": "https://github.com/joshcarp/mcper/releases/download/v0.2.1/plugin-github.wasm",
+      "source": "https://storage.googleapis.com/mcper-releases/latest/plugin-github.wasm",
       "env": ["GITHUB_TOKEN"]
     },
     {
@@ -29,7 +29,7 @@
       "description": "Gmail API integration - read, send, and manage emails",
       "version": "0.1.0",
       "author": "mcper",
-      "source": "https://github.com/joshcarp/mcper/releases/download/v0.2.1/plugin-gmail.wasm",
+      "source": "https://storage.googleapis.com/mcper-releases/latest/plugin-gmail.wasm",
       "env": ["GMAIL_ACCESS_TOKEN"]
     },
     {
@@ -37,7 +37,7 @@
       "description": "Azure DevOps integration - manage projects, repos, work items, PRs, and pipelines",
       "version": "0.1.0",
       "author": "mcper",
-      "source": "https://github.com/joshcarp/mcper/releases/download/v0.2.1/plugin-azuredevops.wasm",
+      "source": "https://storage.googleapis.com/mcper-releases/latest/plugin-azuredevops.wasm",
       "env": ["AZURE_DEVOPS_PAT", "AZURE_DEVOPS_ORG"]
     },
     {
@@ -45,7 +45,7 @@
       "description": "Currency conversion using real-time exchange rates from Frankfurter API",
       "version": "0.1.0",
       "author": "mcper",
-      "source": "https://github.com/joshcarp/mcper/releases/download/v0.2.1/plugin-currency.wasm",
+      "source": "https://storage.googleapis.com/mcper-releases/latest/plugin-currency.wasm",
       "env": []
     }
   ]
