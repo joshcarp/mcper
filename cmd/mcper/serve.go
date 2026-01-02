@@ -98,10 +98,20 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	log.Printf("Loading %d plugin(s)...", len(config.Plugins))
 
+	// Check for cloud credentials and configure proxy
+	var proxyURL string
+	creds, err := mcper.LoadCredentials()
+	if err == nil && creds.IsValid() {
+		proxyURL = creds.GetProxyURL()
+		log.Printf("Logged in as %s, using cloud proxy for OAuth tokens: %s", creds.UserEmail, proxyURL)
+	} else {
+		log.Printf("Not logged in to mcper-cloud, plugins will use direct HTTP (env var auth)")
+	}
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	// Create WASM host
+	// Create WASM host with optional proxy
 	wasmHost := wasmhost.NewLoggingWasmHost(ctx)
 	defer wasmHost.Close(ctx)
 
@@ -131,7 +141,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		case mcper.PluginTypeLocal:
 			// Local WASM file
 			log.Printf("Loading local WASM: %s", plugin.Source)
-			session, err := loadLocalWASM(ctx, wasmHost, mcpServer, name, plugin)
+			session, err := loadLocalWASM(ctx, wasmHost, mcpServer, name, plugin, proxyURL)
 			if err != nil {
 				log.Printf("ERROR: failed to load local WASM %s: %v", plugin.Source, err)
 				return fmt.Errorf("failed to load local WASM %s: %w", plugin.Source, err)
@@ -142,7 +152,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		case mcper.PluginTypeWASM:
 			// Remote WASM - check cache first
 			log.Printf("Loading remote WASM: %s", plugin.Source)
-			session, err := loadRemoteWASM(ctx, wasmHost, mcpServer, name, plugin, parsed)
+			session, err := loadRemoteWASM(ctx, wasmHost, mcpServer, name, plugin, parsed, proxyURL)
 			if err != nil {
 				log.Printf("ERROR: failed to load remote WASM %s: %v", plugin.Source, err)
 				return fmt.Errorf("failed to load remote WASM %s: %w", plugin.Source, err)
@@ -175,7 +185,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 }
 
 // loadLocalWASM loads a local WASM file and registers its tools
-func loadLocalWASM(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Server, name string, plugin mcper.PluginConfig) (*mcp.ClientSession, error) {
+func loadLocalWASM(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Server, name string, plugin mcper.PluginConfig, proxyURL string) (*mcp.ClientSession, error) {
 	// Resolve source path
 	source := plugin.Source
 	if strings.HasPrefix(source, "./") {
@@ -191,11 +201,11 @@ func loadLocalWASM(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Ser
 		return nil, fmt.Errorf("failed to read WASM file: %w", err)
 	}
 
-	return runWASMModule(ctx, host, server, name, wasmBytes, plugin)
+	return runWASMModule(ctx, host, server, name, wasmBytes, plugin, proxyURL)
 }
 
 // loadRemoteWASM loads a remote WASM file from cache or downloads it
-func loadRemoteWASM(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Server, name string, plugin mcper.PluginConfig, parsed *mcper.ParsedPlugin) (*mcp.ClientSession, error) {
+func loadRemoteWASM(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Server, name string, plugin mcper.PluginConfig, parsed *mcper.ParsedPlugin, proxyURL string) (*mcp.ClientSession, error) {
 	// Check cache first
 	entry, err := mcper.GetCacheEntry(parsed)
 	if err != nil {
@@ -252,11 +262,11 @@ func loadRemoteWASM(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Se
 		}
 	}
 
-	return runWASMModule(ctx, host, server, name, wasmBytes, plugin)
+	return runWASMModule(ctx, host, server, name, wasmBytes, plugin, proxyURL)
 }
 
 // runWASMModule loads and runs a WASM module, registering its tools with the MCP server
-func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Server, name string, wasmBytes []byte, plugin mcper.PluginConfig) (*mcp.ClientSession, error) {
+func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Server, name string, wasmBytes []byte, plugin mcper.PluginConfig, proxyURL string) (*mcp.ClientSession, error) {
 	// Load the module
 	if err := host.LoadModule(ctx, name, wasmBytes); err != nil {
 		return nil, fmt.Errorf("failed to load WASM module: %w", err)
@@ -272,6 +282,13 @@ func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Ser
 		} else {
 			log.Printf("Warning: env var %s (mapped from %s) is empty", wasmEnvName, hostEnvName)
 		}
+	}
+
+	// Add proxy environment variables if user is logged in
+	if proxyURL != "" {
+		envVars = append(envVars, fmt.Sprintf("HTTP_PROXY=%s", proxyURL))
+		envVars = append(envVars, fmt.Sprintf("HTTPS_PROXY=%s", proxyURL))
+		log.Printf("Setting proxy for WASM module: %s", proxyURL)
 	}
 
 	// Run the module with environment variables

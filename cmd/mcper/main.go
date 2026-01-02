@@ -45,4 +45,10 @@ func init() {
 	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(pluginCmd)
 	rootCmd.AddCommand(registryCmd)
+
+	// Cloud integration commands
+	rootCmd.AddCommand(loginCmd)
+	rootCmd.AddCommand(loginAPIKeyCmd)
+	rootCmd.AddCommand(logoutCmd)
+	rootCmd.AddCommand(statusCmd)
 }
