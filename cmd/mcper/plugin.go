@@ -153,11 +153,13 @@ func runPluginUpdate(cmd *cobra.Command, args []string) error {
 
 		// Look up in registry
 		if regPlugin, ok := registryMap[parsed.Name]; ok {
-			if p.Source != regPlugin.Source {
+			// Construct the URL using the registry's version (not the "latest" tag)
+			newSource := mcper.PluginURL(parsed.Name, regPlugin.Version)
+			if p.Source != newSource {
 				fmt.Printf("Updating %s...\n", parsed.Name)
 				fmt.Printf("  Old: %s\n", p.Source)
-				fmt.Printf("  New: %s\n", regPlugin.Source)
-				config.Plugins[i].Source = regPlugin.Source
+				fmt.Printf("  New: %s\n", newSource)
+				config.Plugins[i].Source = newSource
 				updated++
 			} else {
 				fmt.Printf("%s is up to date\n", parsed.Name)

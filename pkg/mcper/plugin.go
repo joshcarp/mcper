@@ -82,9 +82,13 @@ func ParsePluginSource(source string) (*ParsedPlugin, error) {
 
 // PluginURL returns the full GCS URL for a plugin name and version
 // Use "latest" as version to get the latest release
+// Version can be specified with or without "v" prefix (e.g., "0.5.0" or "v0.5.0")
 func PluginURL(name, version string) string {
 	if version == "" {
 		version = "latest"
+	} else if version != "latest" && !strings.HasPrefix(version, "v") {
+		// Add "v" prefix for semver versions (GCS uses v-prefixed paths)
+		version = "v" + version
 	}
 	return fmt.Sprintf("%s/%s/plugin-%s.wasm", GCSBaseURL, version, name)
 }
