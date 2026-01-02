@@ -126,8 +126,8 @@ func downloadAndInstall(version string) error {
 		assetName = fmt.Sprintf("mcper-%s.exe", platform)
 	}
 
-	// Download URL from GitHub releases
-	downloadURL := fmt.Sprintf("%s/v%s/%s", mcper.GitHubReleasesURL, version, assetName)
+	// Download URL from GCS
+	downloadURL := fmt.Sprintf("%s/v%s/%s", mcper.GCSBaseURL, version, assetName)
 	fmt.Printf("Downloading mcper v%s for %s...\n", version, platform)
 
 	resp, err := http.Get(downloadURL)
