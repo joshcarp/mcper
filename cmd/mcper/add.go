@@ -63,11 +63,13 @@ func resolvePluginSource(source string) (string, *PluginInfo, error) {
 	// Find the plugin
 	for _, p := range manifest.Plugins {
 		if p.Name == name {
-			// Use specified version or default to registry version
-			if version == "" {
-				version = p.Version
+			// If user specified a version, construct the URL; otherwise use registry source
+			var resolvedSource string
+			if version != "" {
+				resolvedSource = mcper.PluginURL(name, version)
+			} else {
+				resolvedSource = p.Source
 			}
-			resolvedSource := mcper.PluginURL(name, version)
 			return resolvedSource, &p, nil
 		}
 	}
