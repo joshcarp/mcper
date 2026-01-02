@@ -27,8 +27,11 @@ A zero-config MCP (Model Context Protocol) tool that enables:
 Usage:
   mcper init                    Initialize .mcper/start.sh in current project
   mcper add <plugin>            Add a plugin to the project
+  mcper plugin list             List plugins in current project
+  mcper plugin update           Update plugins to latest versions
+  mcper registry list           List available plugins in registry
   mcper serve --config-json ... Run MCP server with the given config
-  mcper cache list              List cached plugins
+  mcper update                  Update mcper to latest version
   mcper version                 Show version information`,
 }
 
@@ -38,7 +41,8 @@ func init() {
 	rootCmd.AddCommand(addCmd)
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(cacheCmd)
-	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(enableCmd)
 	rootCmd.AddCommand(updateCmd)
+	rootCmd.AddCommand(pluginCmd)
+	rootCmd.AddCommand(registryCmd)
 }

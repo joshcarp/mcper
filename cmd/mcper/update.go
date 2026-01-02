@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -26,8 +27,7 @@ var updateCmd = &cobra.Command{
 	Short: "Update mcper to the latest version",
 	Long: `Update mcper to the latest version.
 
-Downloads the latest binary from GitHub releases and replaces
-the current installation.
+Downloads the latest binary and installs it to ~/.mcper/bin/mcper.
 
 Examples:
   mcper update           Update to latest version
@@ -140,61 +140,62 @@ func downloadAndInstall(version string) error {
 		return fmt.Errorf("failed to download: HTTP %d (platform %s may not be available)", resp.StatusCode, platform)
 	}
 
-	// Get current executable path
-	execPath, err := os.Executable()
+	// Always install to ~/.mcper/bin/mcper
+	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return fmt.Errorf("failed to get executable path: %w", err)
+		return fmt.Errorf("failed to get home directory: %w", err)
 	}
 
-	// Create temp file
-	tmpFile, err := os.CreateTemp("", "mcper-update-*")
+	installDir := filepath.Join(homeDir, ".mcper", "bin")
+	installPath := filepath.Join(installDir, binaryName)
+
+	// Ensure install directory exists
+	if err := os.MkdirAll(installDir, 0755); err != nil {
+		return fmt.Errorf("failed to create install directory: %w", err)
+	}
+
+	// Create temp file in the same directory to ensure atomic rename works
+	tmpFile, err := os.CreateTemp(installDir, "mcper-update-*")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
 	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
 
 	// Download to temp file
 	_, err = io.Copy(tmpFile, resp.Body)
 	tmpFile.Close()
 	if err != nil {
+		os.Remove(tmpPath)
 		return fmt.Errorf("failed to download binary: %w", err)
 	}
 
 	// Make executable
 	if err := os.Chmod(tmpPath, 0755); err != nil {
+		os.Remove(tmpPath)
 		return fmt.Errorf("failed to set permissions: %w", err)
 	}
 
-	// Replace current binary
-	// On Windows, we need to rename the old one first
-	if goos == "windows" {
-		oldPath := execPath + ".old"
-		os.Remove(oldPath)
-		if err := os.Rename(execPath, oldPath); err != nil {
-			return fmt.Errorf("failed to backup old binary: %w", err)
-		}
+	// Remove old binary first (handles "text file busy" on some systems)
+	os.Remove(installPath)
+
+	// Rename temp file to final location (atomic on Unix)
+	if err := os.Rename(tmpPath, installPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("failed to install binary: %w", err)
 	}
 
-	// Copy new binary to install location
-	newBinary, err := os.ReadFile(tmpPath)
-	if err != nil {
-		return fmt.Errorf("failed to read new binary: %w", err)
-	}
-
-	if err := os.WriteFile(execPath, newBinary, 0755); err != nil {
-		// Try alternative location
-		homeDir, _ := os.UserHomeDir()
-		altPath := fmt.Sprintf("%s/.mcper/bin/%s", homeDir, binaryName)
-		if err := os.WriteFile(altPath, newBinary, 0755); err != nil {
-			return fmt.Errorf("failed to install binary: %w", err)
-		}
-		fmt.Printf("Updated mcper at %s\n", altPath)
-	} else {
-		fmt.Printf("Updated mcper at %s\n", execPath)
-	}
-
+	fmt.Printf("Updated mcper at %s\n", installPath)
 	fmt.Printf("Successfully updated to v%s\n", version)
+
+	// Check if the current executable is different from install path
+	currentExec, _ := os.Executable()
+	currentExec, _ = filepath.EvalSymlinks(currentExec)
+	if currentExec != installPath {
+		fmt.Printf("\nNote: You are running mcper from %s\n", currentExec)
+		fmt.Printf("The new version was installed to %s\n", installPath)
+		fmt.Println("Make sure ~/.mcper/bin is first in your PATH, or remove the old binary.")
+	}
+
 	return nil
 }
 

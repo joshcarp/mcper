@@ -1,10 +1,7 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,24 +55,9 @@ func resolvePluginSource(source string) (string, *PluginInfo, error) {
 	}
 
 	// Fetch plugins manifest
-	resp, err := http.Get(pluginsURL)
+	manifest, err := fetchPluginsManifest()
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to fetch plugins registry: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", nil, fmt.Errorf("failed to fetch plugins registry: HTTP %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to read registry response: %w", err)
-	}
-
-	var manifest PluginsManifest
-	if err := json.Unmarshal(body, &manifest); err != nil {
-		return "", nil, fmt.Errorf("failed to parse plugins registry: %w", err)
 	}
 
 	// Find the plugin
@@ -90,7 +72,7 @@ func resolvePluginSource(source string) (string, *PluginInfo, error) {
 		}
 	}
 
-	return "", nil, fmt.Errorf("plugin '%s' not found in registry. Run 'mcper list' to see available plugins", name)
+	return "", nil, fmt.Errorf("plugin '%s' not found in registry. Run 'mcper registry list' to see available plugins", name)
 }
 
 func runAdd(cmd *cobra.Command, args []string) error {
