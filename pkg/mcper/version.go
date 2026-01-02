@@ -1,4 +1,5 @@
 package mcper
 
 // Version is the current version of mcper CLI
-const Version = "0.5.1"
+// This is set at build time via ldflags
+var Version = "dev"

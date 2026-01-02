@@ -43,12 +43,16 @@ jobs:
         with:
           go-version: '1.23'
 
+      - name: Get version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
       - name: Build CLI
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          go build -ldflags="-s -w" -o mcper-${{ matrix.suffix }} ./cmd/mcper/
+          go build -ldflags="-s -w -X github.com/joshcarp/mcper/pkg/mcper.Version=${{ steps.version.outputs.version }}" -o mcper-${{ matrix.suffix }} ./cmd/mcper/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
