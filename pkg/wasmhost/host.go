@@ -87,13 +87,20 @@ func (h *WasmHost) RunModuleWithLogging(ctx context.Context, name string, envVar
 
 	log.Printf("[WASM HOST] Instantiated WASI system for module %s", name)
 
-	// Step 3: Instantiate WASI HTTP v1 extension with logging
-	wasiHTTP := wasi_http.MakeWasiHTTP()
-	if err := wasiHTTP.Instantiate(ctx, h.runtime); err != nil {
-		return nil, nil, fmt.Errorf("failed to instantiate WASI HTTP: %v", err)
+	// Step 3: Instantiate WASI HTTP v1 extension (only once per runtime)
+	h.mu.Lock()
+	if !h.wasiHTTPLoaded {
+		wasiHTTP := wasi_http.MakeWasiHTTP()
+		if err := wasiHTTP.Instantiate(ctx, h.runtime); err != nil {
+			h.mu.Unlock()
+			return nil, nil, fmt.Errorf("failed to instantiate WASI HTTP: %v", err)
+		}
+		h.wasiHTTPLoaded = true
+		log.Printf("[WASM HOST] Instantiated WASI HTTP for runtime (first module: %s)", name)
+	} else {
+		log.Printf("[WASM HOST] WASI HTTP already loaded, skipping for module %s", name)
 	}
-
-	log.Printf("[WASM HOST] Instantiated WASI HTTP for module %s", name)
+	h.mu.Unlock()
 
 	// Step 4: Instantiate and run the WASM module
 	go func() {
@@ -168,12 +175,18 @@ func (h *WasmHost) RunModule(ctx context.Context, name string) (io.Reader, io.Wr
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to instantiate WASI system: %w", err)
 	}
-	// Step 4: Instantiate WASI HTTP v1 extension
-	wasiHTTP := wasi_http.MakeWasiHTTP()
-	if err := wasiHTTP.Instantiate(ctx, h.runtime); err != nil {
-		return nil, nil, fmt.Errorf("failed to instantiate WASI HTTP: %v", err)
+	// Step 3: Instantiate WASI HTTP v1 extension (only once per runtime)
+	h.mu.Lock()
+	if !h.wasiHTTPLoaded {
+		wasiHTTP := wasi_http.MakeWasiHTTP()
+		if err := wasiHTTP.Instantiate(ctx, h.runtime); err != nil {
+			h.mu.Unlock()
+			return nil, nil, fmt.Errorf("failed to instantiate WASI HTTP: %v", err)
+		}
+		h.wasiHTTPLoaded = true
 	}
-	// Step 5: Instantiate and run the WASM module
+	h.mu.Unlock()
+	// Step 4: Instantiate and run the WASM module
 	go func() {
 		wazeroConfig := wazero.NewModuleConfig()
 		if _, err = h.runtime.InstantiateModule(ctx, compiledModule, wazeroConfig); err != nil {
