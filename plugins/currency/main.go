@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,8 +28,14 @@ type CurrencyClient struct {
 
 func NewCurrencyClient() *CurrencyClient {
 	return &CurrencyClient{
+		// Force HTTP/1.1 - WASM runtime doesn't support HTTP/2 parsing
 		HTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					NextProtos: []string{"http/1.1"},
+				},
+			},
 		},
 	}
 }

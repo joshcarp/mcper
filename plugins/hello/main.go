@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
@@ -57,8 +58,14 @@ func helloHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallTo
 	log.Printf("Making HTTP call for user: %s", name)
 
 	// Create HTTP client with timeout
+	// Force HTTP/1.1 - WASM runtime doesn't support HTTP/2 parsing
 	client := &http.Client{
 		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				NextProtos: []string{"http/1.1"},
+			},
+		},
 	}
 
 	// Make a simple HTTP GET request
@@ -140,8 +147,14 @@ func networkTestHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 }
 
 func testHTTP(url string) (string, error) {
+	// Force HTTP/1.1 - WASM runtime doesn't support HTTP/2 parsing
 	client := &http.Client{
 		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				NextProtos: []string{"http/1.1"},
+			},
+		},
 	}
 
 	resp, err := client.Get(url)
