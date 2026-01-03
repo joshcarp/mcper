@@ -57,56 +57,104 @@ func runPluginList(cmd *cobra.Command, args []string) error {
 	mcperDir := ".mcper"
 	startScript := filepath.Join(mcperDir, "start.sh")
 
+	var config *mcper.Config
+	var err error
+
 	if _, err := os.Stat(startScript); os.IsNotExist(err) {
-		return fmt.Errorf("no .mcper/start.sh found. Run 'mcper init' first")
+		config = &mcper.Config{Plugins: []mcper.PluginConfig{}}
+	} else {
+		// Parse the start script to get config
+		config, err = mcper.ParseStartScript(startScript)
+		if err != nil {
+			return fmt.Errorf("failed to parse start script: %w", err)
+		}
 	}
 
-	// Parse the start script to get config
-	config, err := mcper.ParseStartScript(startScript)
-	if err != nil {
-		return fmt.Errorf("failed to parse start script: %w", err)
+	// Check for cloud servers if logged in
+	var remoteServers []mcper.RemoteServer
+	creds, credErr := mcper.LoadCredentials()
+	if credErr == nil && creds.IsValid() {
+		remoteServers, err = mcper.FetchRemoteServers(creds)
+		if err != nil {
+			fmt.Printf("Warning: failed to fetch cloud servers: %v\n\n", err)
+		}
 	}
 
-	if len(config.Plugins) == 0 {
+	totalLocal := len(config.Plugins)
+	totalRemote := len(remoteServers)
+
+	if totalLocal == 0 && totalRemote == 0 {
 		fmt.Println("No plugins configured.")
 		fmt.Println("\nTo add a plugin: mcper add <name>")
+		fmt.Println("Or add servers in the cloud dashboard")
 		return nil
 	}
 
 	if pluginListJSON {
+		output := struct {
+			Local  []mcper.PluginConfig  `json:"local"`
+			Remote []mcper.RemoteServer  `json:"remote"`
+		}{
+			Local:  config.Plugins,
+			Remote: remoteServers,
+		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		return enc.Encode(config.Plugins)
+		return enc.Encode(output)
 	}
 
 	// Output as table
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tSOURCE\tENV VARS")
-	fmt.Fprintln(w, "----\t------\t--------")
 
-	for _, p := range config.Plugins {
-		// Parse plugin info
-		parsed, _ := mcper.ParsePluginSource(p.Source)
-		name := "unknown"
-		if parsed != nil && parsed.Name != "" {
-			name = parsed.Name
+	// Local plugins
+	if totalLocal > 0 {
+		fmt.Println("LOCAL PLUGINS:")
+		fmt.Fprintln(w, "NAME\tSOURCE\tENV VARS")
+		fmt.Fprintln(w, "----\t------\t--------")
+
+		for _, p := range config.Plugins {
+			// Parse plugin info
+			parsed, _ := mcper.ParsePluginSource(p.Source)
+			name := "unknown"
+			if parsed != nil && parsed.Name != "" {
+				name = parsed.Name
+			}
+
+			// Count env vars
+			envCount := len(p.Env)
+			envStr := fmt.Sprintf("%d configured", envCount)
+
+			// Truncate source URL for display
+			source := p.Source
+			if len(source) > 50 {
+				source = "..." + source[len(source)-47:]
+			}
+
+			fmt.Fprintf(w, "%s\t%s\t%s\n", name, source, envStr)
 		}
-
-		// Count env vars
-		envCount := len(p.Env)
-		envStr := fmt.Sprintf("%d configured", envCount)
-
-		// Truncate source URL for display
-		source := p.Source
-		if len(source) > 50 {
-			source = "..." + source[len(source)-47:]
-		}
-
-		fmt.Fprintf(w, "%s\t%s\t%s\n", name, source, envStr)
+		w.Flush()
+		fmt.Println()
 	}
 
-	w.Flush()
-	fmt.Printf("\nTotal: %d plugin(s)\n", len(config.Plugins))
+	// Remote servers from cloud
+	if totalRemote > 0 {
+		fmt.Printf("CLOUD SERVERS (from %s):\n", creds.CloudURL)
+		w2 := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(w2, "NAME\tTYPE\tURL")
+		fmt.Fprintln(w2, "----\t----\t---")
+
+		for _, srv := range remoteServers {
+			url := srv.URL
+			if len(url) > 50 {
+				url = "..." + url[len(url)-47:]
+			}
+			fmt.Fprintf(w2, "%s\t%s\t%s\n", srv.Name, srv.Type, url)
+		}
+		w2.Flush()
+		fmt.Println()
+	}
+
+	fmt.Printf("Total: %d local, %d cloud\n", totalLocal, totalRemote)
 
 	return nil
 }
