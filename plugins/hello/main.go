@@ -59,13 +59,14 @@ func helloHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallTo
 
 	// Create HTTP client with timeout
 	// Force HTTP/1.1 - WASM runtime doesn't support HTTP/2 parsing
+	// Clone default transport to preserve stealthrocket/net WASM patches
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{
+		NextProtos: []string{"http/1.1"},
+	}
 	client := &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				NextProtos: []string{"http/1.1"},
-			},
-		},
+		Timeout:   10 * time.Second,
+		Transport: transport,
 	}
 
 	// Make a simple HTTP GET request
@@ -148,13 +149,14 @@ func networkTestHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 
 func testHTTP(url string) (string, error) {
 	// Force HTTP/1.1 - WASM runtime doesn't support HTTP/2 parsing
+	// Clone default transport to preserve stealthrocket/net WASM patches
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{
+		NextProtos: []string{"http/1.1"},
+	}
 	client := &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				NextProtos: []string{"http/1.1"},
-			},
-		},
+		Timeout:   10 * time.Second,
+		Transport: transport,
 	}
 
 	resp, err := client.Get(url)
