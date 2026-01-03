@@ -22,19 +22,42 @@ import (
 )
 
 const (
-	githubAPIBaseURL = "https://api.github.com"
+	defaultGitHubAPIBaseURL = "https://api.github.com"
 )
+
+// getAPIBaseURL returns the API base URL, checking for proxy configuration
+// If MCPER_PROXY_URL is set, it uses the proxy for token injection (e.g., https://mcper.io/api/forward/api.github.com)
+// Otherwise uses the default GitHub API URL
+func getAPIBaseURL() string {
+	if proxyURL := os.Getenv("MCPER_PROXY_URL"); proxyURL != "" {
+		// MCPER_PROXY_URL should be like "https://mcper.io/api/forward"
+		// We append the target host to form the full proxy URL
+		return proxyURL + "/api.github.com"
+	}
+	return defaultGitHubAPIBaseURL
+}
 
 // GitHubClient handles API communication
 type GitHubClient struct {
 	Token      string
+	ProxyAuth  string // Auth token for the mcper proxy
+	BaseURL    string
+	UseProxy   bool
 	HTTPClient *http.Client
 }
 
-// NewGitHubClient creates a new GitHub API client using GITHUB_TOKEN from environment
+// NewGitHubClient creates a new GitHub API client
+// Uses GITHUB_TOKEN from environment if available
+// Uses MCPER_PROXY_URL for token injection when running via mcper-cloud
 func NewGitHubClient() *GitHubClient {
+	proxyURL := os.Getenv("MCPER_PROXY_URL")
+	useProxy := proxyURL != ""
+
 	return &GitHubClient{
-		Token: os.Getenv("GITHUB_TOKEN"),
+		Token:     os.Getenv("GITHUB_TOKEN"),
+		ProxyAuth: os.Getenv("MCPER_AUTH_TOKEN"), // Auth token for proxy requests
+		BaseURL:   getAPIBaseURL(),
+		UseProxy:  useProxy,
 		HTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -229,11 +252,11 @@ func listReposHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Ca
 
 	var endpoint string
 	if args.Org != "" {
-		endpoint = fmt.Sprintf("%s/orgs/%s/repos", githubAPIBaseURL, args.Org)
+		endpoint = fmt.Sprintf("%s/orgs/%s/repos", client.BaseURL, args.Org)
 	} else if args.Username != "" {
-		endpoint = fmt.Sprintf("%s/users/%s/repos", githubAPIBaseURL, args.Username)
+		endpoint = fmt.Sprintf("%s/users/%s/repos", client.BaseURL, args.Username)
 	} else {
-		endpoint = fmt.Sprintf("%s/user/repos", githubAPIBaseURL)
+		endpoint = fmt.Sprintf("%s/user/repos", client.BaseURL)
 	}
 
 	queryParams := url.Values{}
@@ -300,7 +323,7 @@ func getRepoHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 		return errorResult("owner and repo are required"), nil
 	}
 
-	endpoint := fmt.Sprintf("%s/repos/%s/%s", githubAPIBaseURL, args.Owner, args.Repo)
+	endpoint := fmt.Sprintf("%s/repos/%s/%s", client.BaseURL, args.Owner, args.Repo)
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
@@ -372,7 +395,7 @@ func searchReposHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 		queryParams.Set("sort", args.Sort)
 	}
 
-	endpoint := fmt.Sprintf("%s/search/repositories?%s", githubAPIBaseURL, queryParams.Encode())
+	endpoint := fmt.Sprintf("%s/search/repositories?%s", client.BaseURL, queryParams.Encode())
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
@@ -432,7 +455,7 @@ func listIssuesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 	}
 	queryParams.Set("per_page", fmt.Sprintf("%d", perPage))
 
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/issues?%s", githubAPIBaseURL, args.Owner, args.Repo, queryParams.Encode())
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/issues?%s", client.BaseURL, args.Owner, args.Repo, queryParams.Encode())
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
@@ -492,7 +515,7 @@ func getIssueHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Cal
 		return errorResult("owner, repo, and issue_number are required"), nil
 	}
 
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/issues/%d", githubAPIBaseURL, args.Owner, args.Repo, args.IssueNumber)
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/issues/%d", client.BaseURL, args.Owner, args.Repo, args.IssueNumber)
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
@@ -589,7 +612,7 @@ func createIssueHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 	}
 
 	payloadBytes, _ := json.Marshal(payload)
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/issues", githubAPIBaseURL, args.Owner, args.Repo)
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/issues", client.BaseURL, args.Owner, args.Repo)
 
 	resp, err := client.makeRequest("POST", endpoint, strings.NewReader(string(payloadBytes)))
 	if err != nil {
@@ -623,7 +646,7 @@ func addIssueCommentHandler(ctx context.Context, cc *mcp.ServerSession, params *
 	payload := map[string]string{"body": args.Body}
 	payloadBytes, _ := json.Marshal(payload)
 
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/issues/%d/comments", githubAPIBaseURL, args.Owner, args.Repo, args.IssueNumber)
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/issues/%d/comments", client.BaseURL, args.Owner, args.Repo, args.IssueNumber)
 
 	resp, err := client.makeRequest("POST", endpoint, strings.NewReader(string(payloadBytes)))
 	if err != nil {
@@ -663,7 +686,7 @@ func listPRsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 	}
 	queryParams.Set("per_page", fmt.Sprintf("%d", perPage))
 
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/pulls?%s", githubAPIBaseURL, args.Owner, args.Repo, queryParams.Encode())
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/pulls?%s", client.BaseURL, args.Owner, args.Repo, queryParams.Encode())
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
@@ -719,7 +742,7 @@ func getPRHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallTo
 		return errorResult("owner, repo, and pr_number are required"), nil
 	}
 
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/pulls/%d", githubAPIBaseURL, args.Owner, args.Repo, args.PRNumber)
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/pulls/%d", client.BaseURL, args.Owner, args.Repo, args.PRNumber)
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
@@ -805,7 +828,7 @@ func getPRDiffHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Ca
 		return errorResult("owner, repo, and pr_number are required"), nil
 	}
 
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/pulls/%d", githubAPIBaseURL, args.Owner, args.Repo, args.PRNumber)
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/pulls/%d", client.BaseURL, args.Owner, args.Repo, args.PRNumber)
 
 	resp, err := client.makeRequestWithAccept("GET", endpoint, nil, "application/vnd.github.v3.diff")
 	if err != nil {
@@ -823,7 +846,7 @@ func listPRFilesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 		return errorResult("owner, repo, and pr_number are required"), nil
 	}
 
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/pulls/%d/files", githubAPIBaseURL, args.Owner, args.Repo, args.PRNumber)
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/pulls/%d/files", client.BaseURL, args.Owner, args.Repo, args.PRNumber)
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
@@ -869,7 +892,7 @@ func getFileHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 		return errorResult("owner, repo, and path are required"), nil
 	}
 
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/contents/%s", githubAPIBaseURL, args.Owner, args.Repo, args.Path)
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/contents/%s", client.BaseURL, args.Owner, args.Repo, args.Path)
 	if args.Ref != "" {
 		endpoint += "?ref=" + url.QueryEscape(args.Ref)
 	}
@@ -935,7 +958,7 @@ func searchCodeHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 	queryParams.Set("q", args.Query)
 	queryParams.Set("per_page", fmt.Sprintf("%d", perPage))
 
-	endpoint := fmt.Sprintf("%s/search/code?%s", githubAPIBaseURL, queryParams.Encode())
+	endpoint := fmt.Sprintf("%s/search/code?%s", client.BaseURL, queryParams.Encode())
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
@@ -978,7 +1001,7 @@ func getUserHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 		return errorResult("username is required"), nil
 	}
 
-	endpoint := fmt.Sprintf("%s/users/%s", githubAPIBaseURL, args.Username)
+	endpoint := fmt.Sprintf("%s/users/%s", client.BaseURL, args.Username)
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
@@ -1056,7 +1079,7 @@ func listCommitsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 	}
 	queryParams.Set("per_page", fmt.Sprintf("%d", perPage))
 
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/commits?%s", githubAPIBaseURL, args.Owner, args.Repo, queryParams.Encode())
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/commits?%s", client.BaseURL, args.Owner, args.Repo, queryParams.Encode())
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
@@ -1104,7 +1127,11 @@ func (c *GitHubClient) makeRequestWithAccept(method, endpoint string, body io.Re
 		return nil, err
 	}
 
-	if c.Token != "" {
+	if c.UseProxy && c.ProxyAuth != "" {
+		// When using mcper proxy, pass API key for auth - proxy injects OAuth token
+		req.Header.Set("Authorization", "Bearer "+c.ProxyAuth)
+	} else if c.Token != "" {
+		// Direct API call with local GitHub token
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 	req.Header.Set("Accept", accept)
