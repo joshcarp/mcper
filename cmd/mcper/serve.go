@@ -216,7 +216,12 @@ func loadLocalWASM(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Ser
 		return nil, fmt.Errorf("failed to read WASM file: %w", err)
 	}
 
-	return runWASMModule(ctx, host, server, name, wasmBytes, plugin, proxyURL)
+	// Extract plugin name from file path (e.g., "plugin-hello.wasm" -> "hello")
+	baseName := filepath.Base(plugin.Source)
+	pluginName := strings.TrimSuffix(baseName, ".wasm")
+	pluginName = strings.TrimPrefix(pluginName, "plugin-")
+
+	return runWASMModule(ctx, host, server, name, pluginName, wasmBytes, plugin, proxyURL)
 }
 
 // loadRemoteWASM loads a remote WASM file from cache or downloads it
@@ -277,11 +282,17 @@ func loadRemoteWASM(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Se
 		}
 	}
 
-	return runWASMModule(ctx, host, server, name, wasmBytes, plugin, proxyURL)
+	// Use parsed plugin name for namespacing
+	pluginName := parsed.Name
+	if pluginName == "" {
+		pluginName = name // fallback to internal name
+	}
+
+	return runWASMModule(ctx, host, server, name, pluginName, wasmBytes, plugin, proxyURL)
 }
 
 // runWASMModule loads and runs a WASM module, registering its tools with the MCP server
-func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Server, name string, wasmBytes []byte, plugin mcper.PluginConfig, proxyURL string) (*mcp.ClientSession, error) {
+func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Server, name string, pluginName string, wasmBytes []byte, plugin mcper.PluginConfig, proxyURL string) (*mcp.ClientSession, error) {
 	// Load the module
 	if err := host.LoadModule(ctx, name, wasmBytes); err != nil {
 		return nil, fmt.Errorf("failed to load WASM module: %w", err)
@@ -353,13 +364,15 @@ func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Ser
 			}, nil
 		}
 
+		// Create namespaced tool name: wasm/<pluginName>/<toolName>
+		namespacedName := fmt.Sprintf("wasm/%s/%s", pluginName, tool.Name)
 		server.AddTool(&mcp.Tool{
-			Name:        tool.Name,
+			Name:        namespacedName,
 			Description: tool.Description,
 			InputSchema: inputSchema,
 		}, handler)
 
-		log.Printf("Registered tool: %s", tool.Name)
+		log.Printf("Registered tool: %s", namespacedName)
 	}
 
 	return session, nil
@@ -380,6 +393,9 @@ func loadHTTPPlugin(ctx context.Context, server *mcp.Server, name string, plugin
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tools from HTTP plugin: %w", err)
 	}
+
+	// Extract plugin name from URL or use provided name
+	pluginName := name
 
 	// Register each tool with the MCP server
 	for _, tool := range tools.Tools {
@@ -406,13 +422,15 @@ func loadHTTPPlugin(ctx context.Context, server *mcp.Server, name string, plugin
 			}, nil
 		}
 
+		// Create namespaced tool name: http/<pluginName>/<toolName>
+		namespacedName := fmt.Sprintf("http/%s/%s", pluginName, tool.Name)
 		server.AddTool(&mcp.Tool{
-			Name:        tool.Name,
+			Name:        namespacedName,
 			Description: tool.Description,
 			InputSchema: inputSchema,
 		}, handler)
 
-		log.Printf("Registered HTTP tool: %s", tool.Name)
+		log.Printf("Registered HTTP tool: %s", namespacedName)
 	}
 
 	return session, nil

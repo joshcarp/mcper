@@ -15,9 +15,9 @@ import (
 
 // registerNativeTools adds mcper's own tools to the MCP server
 func registerNativeTools(server *mcp.Server) {
-	// mcper_registry_list - List all available plugins in the registry
+	// mcper/native/registry_list - List all available plugins in the registry
 	server.AddTool(&mcp.Tool{
-		Name:        "mcper_registry_list",
+		Name:        "mcper/native/registry_list",
 		Description: "List all available plugins in the mcper registry. Returns plugin names, descriptions, versions, and required environment variables.",
 		InputSchema: &jsonschema.Schema{
 			Type:       "object",
@@ -25,9 +25,9 @@ func registerNativeTools(server *mcp.Server) {
 		},
 	}, handleRegistryList)
 
-	// mcper_registry_search - Search for plugins
+	// mcper/native/registry_search - Search for plugins
 	server.AddTool(&mcp.Tool{
-		Name:        "mcper_registry_search",
+		Name:        "mcper/native/registry_search",
 		Description: "Search for plugins in the mcper registry by name or description.",
 		InputSchema: &jsonschema.Schema{
 			Type: "object",
@@ -41,9 +41,9 @@ func registerNativeTools(server *mcp.Server) {
 		},
 	}, handleRegistrySearch)
 
-	// mcper_plugin_list - List configured plugins in current project
+	// mcper/native/plugin_list - List configured plugins in current project
 	server.AddTool(&mcp.Tool{
-		Name:        "mcper_plugin_list",
+		Name:        "mcper/native/plugin_list",
 		Description: "List all plugins configured in the current project's .mcper/start.sh file.",
 		InputSchema: &jsonschema.Schema{
 			Type:       "object",
@@ -51,9 +51,9 @@ func registerNativeTools(server *mcp.Server) {
 		},
 	}, handlePluginList)
 
-	// mcper_cache_list - List cached plugins
+	// mcper/native/cache_list - List cached plugins
 	server.AddTool(&mcp.Tool{
-		Name:        "mcper_cache_list",
+		Name:        "mcper/native/cache_list",
 		Description: "List all cached WASM plugins with their metadata including size, hash, and download date.",
 		InputSchema: &jsonschema.Schema{
 			Type:       "object",
@@ -61,9 +61,9 @@ func registerNativeTools(server *mcp.Server) {
 		},
 	}, handleCacheList)
 
-	// mcper_version - Get mcper version info
+	// mcper/native/version - Get mcper version info
 	server.AddTool(&mcp.Tool{
-		Name:        "mcper_version",
+		Name:        "mcper/native/version",
 		Description: "Get the current mcper version and installation information.",
 		InputSchema: &jsonschema.Schema{
 			Type:       "object",
@@ -71,9 +71,9 @@ func registerNativeTools(server *mcp.Server) {
 		},
 	}, handleVersion)
 
-	// mcper_plugin_info - Get detailed info about a specific plugin
+	// mcper/native/plugin_info - Get detailed info about a specific plugin
 	server.AddTool(&mcp.Tool{
-		Name:        "mcper_plugin_info",
+		Name:        "mcper/native/plugin_info",
 		Description: "Get detailed information about a specific plugin from the registry.",
 		InputSchema: &jsonschema.Schema{
 			Type: "object",
@@ -346,7 +346,7 @@ func handlePluginInfo(ctx context.Context, ss *mcp.ServerSession, params *mcp.Ca
 		}
 	}
 
-	return textResult(fmt.Sprintf("Plugin '%s' not found in registry.\n\nRun `mcper_registry_list` to see available plugins.", name)), nil
+	return textResult(fmt.Sprintf("Plugin '%s' not found in registry.\n\nRun `mcper/native/registry_list` to see available plugins.", name)), nil
 }
 
 // Helper functions for creating tool results
