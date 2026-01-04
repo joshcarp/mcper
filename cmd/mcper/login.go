@@ -2,10 +2,10 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -22,7 +22,7 @@ var loginCmd = &cobra.Command{
 	Short: "Log in to mcper-cloud",
 	Long: `Log in to mcper-cloud to enable OAuth token management.
 
-This command displays a code that you enter on the mcper website to authenticate.
+This command opens a browser window for OAuth authentication.
 After successful login, your API key is stored locally for future use.
 
 Example:
@@ -39,25 +39,6 @@ func init() {
 	loginCmd.Flags().StringVar(&loginServer, "server", mcper.DefaultCloudURL, "mcper-cloud server URL")
 }
 
-// DeviceCodeResponse from the server
-type DeviceCodeResponse struct {
-	DeviceCode      string `json:"device_code"`
-	UserCode        string `json:"user_code"`
-	VerificationURI string `json:"verification_uri"`
-	ExpiresIn       int    `json:"expires_in"`
-	Interval        int    `json:"interval"`
-}
-
-// DeviceTokenResponse from polling
-type DeviceTokenResponse struct {
-	AccessToken string `json:"access_token,omitempty"`
-	TokenType   string `json:"token_type,omitempty"`
-	ExpiresIn   int    `json:"expires_in,omitempty"`
-	UserID      string `json:"user_id,omitempty"`
-	Email       string `json:"email,omitempty"`
-	Error       string `json:"error,omitempty"`
-}
-
 func runLogin(cmd *cobra.Command, args []string) error {
 	// Check if already logged in
 	if creds, err := mcper.LoadCredentials(); err == nil && creds.IsValid() {
@@ -68,120 +49,106 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 	fmt.Println("Logging in to mcper-cloud...")
 
-	// Get client name (e.g., "Claude Code", "mcper-cli")
-	clientName := getClientName()
-
-	// Request device code from server
-	reqBody, _ := json.Marshal(map[string]string{"client_name": clientName})
-	resp, err := http.Post(loginServer+"/api/device/code", "application/json", bytes.NewReader(reqBody))
+	// Start local server to receive OAuth callback
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		return fmt.Errorf("failed to request device code: %w", err)
+		return fmt.Errorf("failed to start local server: %w", err)
 	}
-	defer resp.Body.Close()
+	defer listener.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to request device code: HTTP %d", resp.StatusCode)
+	port := listener.Addr().(*net.TCPAddr).Port
+	callbackURL := fmt.Sprintf("http://127.0.0.1:%d/callback", port)
+
+	// Channel to receive credentials
+	credsChan := make(chan *mcper.Credentials, 1)
+	errChan := make(chan error, 1)
+
+	// Handle callback
+	server := &http.Server{}
+	http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+		// Parse query params
+		apiKey := r.URL.Query().Get("api_key")
+		userEmail := r.URL.Query().Get("email")
+		userID := r.URL.Query().Get("user_id")
+		expiresAtStr := r.URL.Query().Get("expires_at")
+
+		if apiKey == "" {
+			errMsg := r.URL.Query().Get("error")
+			if errMsg == "" {
+				errMsg = "No API key received"
+			}
+			http.Error(w, errMsg, http.StatusBadRequest)
+			errChan <- fmt.Errorf("login failed: %s", errMsg)
+			return
+		}
+
+		var expiresAt time.Time
+		if expiresAtStr != "" {
+			expiresAt, _ = time.Parse(time.RFC3339, expiresAtStr)
+		}
+
+		creds := &mcper.Credentials{
+			APIKey:    apiKey,
+			UserEmail: userEmail,
+			UserID:    userID,
+			CloudURL:  loginServer,
+			ExpiresAt: expiresAt,
+		}
+
+		// Send success response
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head><title>Login Successful</title></head>
+<body style="font-family: -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);">
+<div style="background: white; padding: 2rem; border-radius: 12px; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.1);">
+<h1 style="color: #38a169;">Login Successful!</h1>
+<p>You can close this window and return to your terminal.</p>
+</div>
+</body>
+</html>`)
+
+		credsChan <- creds
+	})
+
+	// Start server in goroutine
+	go func() {
+		server.Serve(listener)
+	}()
+
+	// Build login URL
+	loginURL := fmt.Sprintf("%s/cli/login?callback=%s", loginServer, callbackURL)
+
+	// Open browser
+	fmt.Printf("Opening browser to: %s\n", loginURL)
+	if err := openBrowser(loginURL); err != nil {
+		fmt.Printf("Could not open browser automatically.\n")
+		fmt.Printf("Please open this URL in your browser:\n%s\n", loginURL)
 	}
 
-	var deviceCode DeviceCodeResponse
-	if err := json.NewDecoder(resp.Body).Decode(&deviceCode); err != nil {
-		return fmt.Errorf("failed to parse device code response: %w", err)
-	}
+	fmt.Println("\nWaiting for authentication...")
 
-	// Display the code to the user
-	fmt.Println()
-	fmt.Println("  ┌────────────────────────────────────────┐")
-	fmt.Println("  │                                        │")
-	fmt.Printf("  │     Your code is:  %s         │\n", deviceCode.UserCode)
-	fmt.Println("  │                                        │")
-	fmt.Println("  └────────────────────────────────────────┘")
-	fmt.Println()
-	fmt.Printf("  Open this URL in your browser:\n")
-	fmt.Printf("  %s\n\n", deviceCode.VerificationURI)
-
-	// Try to open browser automatically
-	if err := openBrowser(deviceCode.VerificationURI + "?code=" + deviceCode.UserCode); err == nil {
-		fmt.Println("  (Browser opened automatically)")
-	}
-	fmt.Println()
-	fmt.Println("Waiting for authentication...")
-
-	// Poll for token
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(deviceCode.ExpiresIn)*time.Second)
+	// Wait for callback with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	interval := time.Duration(deviceCode.Interval) * time.Second
-	if interval < 5*time.Second {
-		interval = 5 * time.Second
-	}
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("login timed out")
-		case <-ticker.C:
-			// Poll for token
-			tokenReq, _ := json.Marshal(map[string]string{"device_code": deviceCode.DeviceCode})
-			tokenResp, err := http.Post(loginServer+"/api/device/token", "application/json", bytes.NewReader(tokenReq))
-			if err != nil {
-				continue // Retry on network error
-			}
-
-			var tokenResult DeviceTokenResponse
-			json.NewDecoder(tokenResp.Body).Decode(&tokenResult)
-			tokenResp.Body.Close()
-
-			switch tokenResult.Error {
-			case "authorization_pending":
-				// Still waiting, continue polling
-				continue
-			case "":
-				// Success!
-				if tokenResult.AccessToken != "" {
-					creds := &mcper.Credentials{
-						APIKey:    tokenResult.AccessToken,
-						UserEmail: tokenResult.Email,
-						UserID:    tokenResult.UserID,
-						CloudURL:  loginServer,
-						ExpiresAt: time.Now().Add(time.Duration(tokenResult.ExpiresIn) * time.Second),
-					}
-					if err := mcper.SaveCredentials(creds); err != nil {
-						return fmt.Errorf("failed to save credentials: %w", err)
-					}
-					fmt.Printf("\nLogged in successfully as %s\n", creds.UserEmail)
-					fmt.Println("Your API key has been saved to ~/.mcper/credentials.json")
-					return nil
-				}
-			default:
-				// Other error (expired, etc.)
-				return fmt.Errorf("login failed: %s", tokenResult.Error)
-			}
+	select {
+	case creds := <-credsChan:
+		// Save credentials
+		if err := mcper.SaveCredentials(creds); err != nil {
+			return fmt.Errorf("failed to save credentials: %w", err)
 		}
-	}
-}
+		fmt.Printf("\nLogged in successfully as %s\n", creds.UserEmail)
+		fmt.Println("Your API key has been saved to ~/.mcper/credentials.json")
+		return nil
 
-// getClientName tries to determine the client name
-func getClientName() string {
-	// Check if running inside Claude Code
-	if os.Getenv("CLAUDE_CODE") != "" {
-		return "Claude Code"
+	case err := <-errChan:
+		return err
+
+	case <-ctx.Done():
+		return fmt.Errorf("login timed out after 5 minutes")
 	}
-	// Check for common IDE environment variables
-	if os.Getenv("VSCODE_PID") != "" {
-		return "VS Code"
-	}
-	if os.Getenv("TERM_PROGRAM") == "iTerm.app" {
-		return "iTerm"
-	}
-	// Default to hostname
-	hostname, err := os.Hostname()
-	if err == nil {
-		return "mcper-cli on " + hostname
-	}
-	return "mcper-cli"
 }
 
 // loginManual handles manual API key entry
