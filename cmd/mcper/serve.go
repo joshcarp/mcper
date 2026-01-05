@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -68,6 +69,187 @@ func setupLogging() (*os.File, error) {
 	return logFile, nil
 }
 
+// chromeBridgeManager handles automatic chrome-bridge lifecycle
+type chromeBridgeManager struct {
+	cmd     *exec.Cmd
+	running bool
+}
+
+// startChromeBridge starts chrome-bridge if chrome plugin is being used
+func startChromeBridge(plugins []mcper.PluginConfig) (*chromeBridgeManager, error) {
+	// Check if any plugin is the chrome plugin
+	needsChrome := false
+	for _, p := range plugins {
+		if strings.Contains(strings.ToLower(p.Source), "chrome") ||
+			strings.Contains(strings.ToLower(p.Source), "plugin-chrome") {
+			needsChrome = true
+			break
+		}
+	}
+
+	if !needsChrome {
+		return nil, nil
+	}
+
+	log.Printf("Chrome plugin detected, starting chrome-bridge...")
+
+	// Find or download chrome-bridge
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	mcperDir := filepath.Join(homeDir, ".mcper")
+	bridgePath := filepath.Join(mcperDir, "chrome-bridge")
+
+	// Check if chrome-bridge exists
+	if _, err := os.Stat(bridgePath); os.IsNotExist(err) {
+		log.Printf("chrome-bridge not found, downloading...")
+		if err := downloadChromeBridge(bridgePath); err != nil {
+			return nil, fmt.Errorf("failed to download chrome-bridge: %w", err)
+		}
+	}
+
+	// Make executable
+	if err := os.Chmod(bridgePath, 0755); err != nil {
+		return nil, fmt.Errorf("failed to make chrome-bridge executable: %w", err)
+	}
+
+	// Find Chrome executable
+	chromePath := findChrome()
+	if chromePath == "" {
+		log.Printf("Warning: Chrome not found in standard locations, chrome-bridge may fail")
+	}
+
+	// Start chrome-bridge
+	args := []string{"-server", "-port", "9223"}
+	if chromePath != "" {
+		args = append(args, "-chrome-path", chromePath)
+	}
+
+	cmd := exec.Command(bridgePath, args...)
+	cmd.Stdout = os.Stderr // Redirect to stderr so it doesn't interfere with MCP protocol
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start chrome-bridge: %w", err)
+	}
+
+	// Wait for chrome-bridge to be ready
+	ready := false
+	for i := 0; i < 30; i++ { // Wait up to 15 seconds
+		time.Sleep(500 * time.Millisecond)
+		resp, err := http.Get("http://localhost:9223/health")
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == 200 {
+				ready = true
+				break
+			}
+		}
+	}
+
+	if !ready {
+		cmd.Process.Kill()
+		return nil, fmt.Errorf("chrome-bridge failed to start within timeout")
+	}
+
+	log.Printf("chrome-bridge started successfully (PID: %d)", cmd.Process.Pid)
+
+	return &chromeBridgeManager{cmd: cmd, running: true}, nil
+}
+
+func (m *chromeBridgeManager) Stop() {
+	if m == nil || !m.running {
+		return
+	}
+	log.Printf("Stopping chrome-bridge...")
+	if m.cmd.Process != nil {
+		m.cmd.Process.Kill()
+		m.cmd.Wait()
+	}
+	m.running = false
+}
+
+func downloadChromeBridge(destPath string) error {
+	// Get current version
+	version := mcper.Version
+
+	// Determine platform
+	goos := runtime.GOOS
+	goarch := runtime.GOARCH
+	suffix := fmt.Sprintf("%s-%s", goos, goarch)
+
+	url := fmt.Sprintf("https://storage.googleapis.com/mcper-releases/v%s/chrome-bridge-%s", version, suffix)
+	log.Printf("Downloading chrome-bridge from %s", url)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		// Try latest
+		url = fmt.Sprintf("https://storage.googleapis.com/mcper-releases/latest/chrome-bridge-%s", suffix)
+		log.Printf("Version-specific not found, trying %s", url)
+		resp, err = http.Get(url)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			return fmt.Errorf("failed to download chrome-bridge: HTTP %d", resp.StatusCode)
+		}
+	}
+
+	// Ensure parent directory exists
+	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+		return err
+	}
+
+	// Write to file
+	out, err := os.Create(destPath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	return err
+}
+
+func findChrome() string {
+	// Common Chrome paths
+	paths := []string{
+		// macOS
+		"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+		// Linux
+		"/usr/bin/google-chrome-stable",
+		"/usr/bin/google-chrome",
+		"/usr/bin/chromium-browser",
+		"/usr/bin/chromium",
+		// Windows (when running via WSL or similar)
+		"/mnt/c/Program Files/Google/Chrome/Application/chrome.exe",
+	}
+
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+
+	// Try to find via PATH
+	if path, err := exec.LookPath("google-chrome"); err == nil {
+		return path
+	}
+	if path, err := exec.LookPath("chromium"); err == nil {
+		return path
+	}
+
+	return ""
+}
+
 func runServe(cmd *cobra.Command, args []string) error {
 	// Setup file logging
 	logFile, err := setupLogging()
@@ -97,6 +279,16 @@ func runServe(cmd *cobra.Command, args []string) error {
 	log.Printf("Config: %s", configJSON)
 
 	log.Printf("Loading %d plugin(s)...", len(config.Plugins))
+
+	// Auto-start chrome-bridge if chrome plugin is being used
+	chromeBridge, err := startChromeBridge(config.Plugins)
+	if err != nil {
+		log.Printf("Warning: failed to start chrome-bridge: %v", err)
+		log.Printf("Chrome plugin may not work correctly")
+	}
+	if chromeBridge != nil {
+		defer chromeBridge.Stop()
+	}
 
 	// Check for cloud credentials and configure proxy
 	var proxyURL string
