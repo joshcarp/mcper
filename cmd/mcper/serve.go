@@ -112,9 +112,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 		} else if len(remoteServers) > 0 {
 			log.Printf("Fetched %d remote server(s) from mcper-cloud", len(remoteServers))
 			for _, srv := range remoteServers {
-				// Add remote servers to config
+				// Add remote servers to config with IsCloud flag
 				config.Plugins = append(config.Plugins, mcper.PluginConfig{
-					Source: srv.URL,
+					Source:  srv.URL,
+					IsCloud: true, // Mark as fetched from mcper-cloud
 				})
 				log.Printf("  - %s (%s): %s", srv.Name, srv.Type, srv.URL)
 			}
@@ -364,8 +365,14 @@ func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Ser
 			}, nil
 		}
 
-		// Create namespaced tool name: wasm/<pluginName>/<toolName>
-		namespacedName := fmt.Sprintf("wasm/%s/%s", pluginName, tool.Name)
+		// Create namespaced tool name based on source:
+		// - Local WASM: wasm/<pluginName>/<toolName>
+		// - Cloud WASM: cloud/<pluginName>/<toolName>
+		namespace := "wasm"
+		if plugin.IsCloud {
+			namespace = "cloud"
+		}
+		namespacedName := fmt.Sprintf("%s/%s/%s", namespace, pluginName, tool.Name)
 		server.AddTool(&mcp.Tool{
 			Name:        namespacedName,
 			Description: tool.Description,

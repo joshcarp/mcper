@@ -10,6 +10,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	_ "github.com/breml/rootcerts"
@@ -54,13 +56,93 @@ func helloHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallTo
 		name = "World"
 	}
 
-	// Simple hello response - no external HTTP calls needed
-	message := fmt.Sprintf("Hello, %s! Welcome to the Hello World MCP Server! 🎉", name)
+	// Test WASM HTTP networking by calling httpbin.org
+	httpResult := testHTTPBin()
+
+	message := fmt.Sprintf("Hello, %s! Welcome to the Hello World MCP Server!\n\n%s", name, httpResult)
 	log.Printf("Greeting user: %s", name)
 
 	return &mcp.CallToolResultFor[any]{
 		Content: []mcp.Content{&mcp.TextContent{Text: message}},
 	}, nil
+}
+
+// testHTTPBin tests HTTP connectivity - tries direct first, then proxy fallback
+func testHTTPBin() string {
+	client := createHTTP11Client()
+	targetURL := "https://httpbin.org/get"
+
+	// Try direct HTTP call first
+	result, err := tryDirectHTTP(client, targetURL)
+	if err == nil {
+		return fmt.Sprintf("HTTP Test (Direct): SUCCESS\n%s", result)
+	}
+	directErr := err
+
+	// Try via proxy if MCPER_PROXY_URL is set
+	proxyURL := os.Getenv("MCPER_PROXY_URL")
+	if proxyURL == "" {
+		proxyURL = os.Getenv("HTTP_PROXY")
+	}
+
+	if proxyURL != "" {
+		result, err := tryProxyHTTP(client, proxyURL, "httpbin.org/get")
+		if err == nil {
+			return fmt.Sprintf("HTTP Test (Proxy): SUCCESS\n%s", result)
+		}
+		return fmt.Sprintf("HTTP Test: FAILED\n- Direct error: %v\n- Proxy error: %v", directErr, err)
+	}
+
+	return fmt.Sprintf("HTTP Test (Direct): FAILED\n- Error: %v\n- No proxy configured", directErr)
+}
+
+// createHTTP11Client creates an HTTP client that forces HTTP/1.1
+func createHTTP11Client() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSNextProto = make(map[string]func(authority string, c *tls.Conn) http.RoundTripper)
+	if transport.TLSClientConfig == nil {
+		transport.TLSClientConfig = &tls.Config{}
+	}
+	transport.TLSClientConfig.NextProtos = []string{"http/1.1"}
+	return &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: transport,
+	}
+}
+
+// tryDirectHTTP attempts a direct HTTP call
+func tryDirectHTTP(client *http.Client, url string) (string, error) {
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("URL: %s\nStatus: %d\nBody: %d bytes", url, resp.StatusCode, len(body)), nil
+}
+
+// tryProxyHTTP attempts an HTTP call via the mcper proxy
+func tryProxyHTTP(client *http.Client, proxyBaseURL, path string) (string, error) {
+	// Build proxy URL: {proxyBaseURL}/{path}
+	proxyURL := strings.TrimSuffix(proxyBaseURL, "/") + "/" + strings.TrimPrefix(path, "/")
+
+	resp, err := client.Get(proxyURL)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("Proxy URL: %s\nStatus: %d\nBody: %d bytes", proxyURL, resp.StatusCode, len(body)), nil
 }
 
 // NetworkTestParams defines the parameters for network_test tool
