@@ -22,17 +22,14 @@ import (
 	_ "github.com/stealthrocket/net/wasip1"
 )
 
-const (
-	gmailAPIBaseURL = "https://gmail.googleapis.com/gmail/v1/users/me"
-)
-
-// GmailClient handles API communication
+// GmailClient handles API communication through the MCPer proxy
 type GmailClient struct {
-	AccessToken string
-	HTTPClient  *http.Client
+	ProxyURL   string // MCPER_PROXY_URL - the proxy endpoint for token injection
+	AuthToken  string // MCPER_AUTH_TOKEN - auth token for the proxy
+	HTTPClient *http.Client
 }
 
-// NewGmailClient creates a new Gmail API client using GMAIL_ACCESS_TOKEN from environment
+// NewGmailClient creates a new Gmail API client using MCPer proxy for token injection
 func NewGmailClient() *GmailClient {
 	// Force HTTP/1.1 - WASM runtime doesn't support HTTP/2 parsing
 	transport := http.DefaultTransport.(*http.Transport).Clone()
@@ -43,12 +40,28 @@ func NewGmailClient() *GmailClient {
 	transport.TLSClientConfig.NextProtos = []string{"http/1.1"}
 
 	return &GmailClient{
-		AccessToken: os.Getenv("GMAIL_ACCESS_TOKEN"),
+		ProxyURL:  os.Getenv("MCPER_PROXY_URL"),
+		AuthToken: os.Getenv("MCPER_AUTH_TOKEN"),
 		HTTPClient: &http.Client{
 			Timeout:   30 * time.Second,
 			Transport: transport,
 		},
 	}
+}
+
+// getGmailBaseURL returns the Gmail API base URL through the proxy
+func (c *GmailClient) getGmailBaseURL() string {
+	if c.ProxyURL != "" {
+		// Use proxy: MCPER_PROXY_URL/gmail.googleapis.com/gmail/v1/users/me
+		return strings.TrimSuffix(c.ProxyURL, "/") + "/gmail.googleapis.com/gmail/v1/users/me"
+	}
+	// Fallback to direct API (requires GMAIL_ACCESS_TOKEN to be set manually)
+	return "https://gmail.googleapis.com/gmail/v1/users/me"
+}
+
+// isConfigured returns true if the client has proxy configuration
+func (c *GmailClient) isConfigured() bool {
+	return c.ProxyURL != "" && c.AuthToken != ""
 }
 
 func main() {
@@ -100,7 +113,6 @@ func main() {
 }
 
 // ListMessagesParams defines parameters for listing messages
-// Token is always from GMAIL_ACCESS_TOKEN environment variable
 type ListMessagesParams struct {
 	MaxResults int    `json:"max_results,omitempty"`
 	LabelIds   string `json:"label_ids,omitempty"` // Comma-separated: INBOX,UNREAD
@@ -108,21 +120,18 @@ type ListMessagesParams struct {
 }
 
 // GetMessageParams defines parameters for getting a message
-// Token is always from GMAIL_ACCESS_TOKEN environment variable
 type GetMessageParams struct {
 	MessageID string `json:"message_id"`
 	Format    string `json:"format,omitempty"` // full, metadata, minimal
 }
 
 // SearchParams defines parameters for searching messages
-// Token is always from GMAIL_ACCESS_TOKEN environment variable
 type SearchParams struct {
 	Query      string `json:"query"`
 	MaxResults int    `json:"max_results,omitempty"`
 }
 
 // SendMessageParams defines parameters for sending a message
-// Token is always from GMAIL_ACCESS_TOKEN environment variable
 type SendMessageParams struct {
 	To      string `json:"to"`
 	Subject string `json:"subject"`
@@ -132,14 +141,12 @@ type SendMessageParams struct {
 }
 
 // ReplyMessageParams defines parameters for replying to a message
-// Token is always from GMAIL_ACCESS_TOKEN environment variable
 type ReplyMessageParams struct {
 	MessageID string `json:"message_id"`
 	Body      string `json:"body"`
 }
 
 // ModifyLabelsParams defines parameters for modifying labels
-// Token is always from GMAIL_ACCESS_TOKEN environment variable
 type ModifyLabelsParams struct {
 	MessageID    string `json:"message_id"`
 	AddLabels    string `json:"add_labels,omitempty"`    // Comma-separated
@@ -151,10 +158,10 @@ func listMessagesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp
 	args := params.Arguments
 	client := NewGmailClient()
 
-	if client.AccessToken == "" {
+	if !client.isConfigured() {
 		return &mcp.CallToolResultFor[any]{
 			IsError: true,
-			Content: []mcp.Content{&mcp.TextContent{Text: "GMAIL_ACCESS_TOKEN environment variable is required"}},
+			Content: []mcp.Content{&mcp.TextContent{Text: "Gmail not configured. Please authenticate with Google through MCPer."}},
 		}, nil
 	}
 
@@ -181,10 +188,10 @@ func getMessageHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 	args := params.Arguments
 	client := NewGmailClient()
 
-	if client.AccessToken == "" {
+	if !client.isConfigured() {
 		return &mcp.CallToolResultFor[any]{
 			IsError: true,
-			Content: []mcp.Content{&mcp.TextContent{Text: "GMAIL_ACCESS_TOKEN environment variable is required"}},
+			Content: []mcp.Content{&mcp.TextContent{Text: "Gmail not configured. Please authenticate with Google through MCPer."}},
 		}, nil
 	}
 
@@ -218,10 +225,10 @@ func searchMessagesHandler(ctx context.Context, cc *mcp.ServerSession, params *m
 	args := params.Arguments
 	client := NewGmailClient()
 
-	if client.AccessToken == "" {
+	if !client.isConfigured() {
 		return &mcp.CallToolResultFor[any]{
 			IsError: true,
-			Content: []mcp.Content{&mcp.TextContent{Text: "GMAIL_ACCESS_TOKEN environment variable is required"}},
+			Content: []mcp.Content{&mcp.TextContent{Text: "Gmail not configured. Please authenticate with Google through MCPer."}},
 		}, nil
 	}
 
@@ -255,10 +262,10 @@ func sendMessageHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 	args := params.Arguments
 	client := NewGmailClient()
 
-	if client.AccessToken == "" {
+	if !client.isConfigured() {
 		return &mcp.CallToolResultFor[any]{
 			IsError: true,
-			Content: []mcp.Content{&mcp.TextContent{Text: "GMAIL_ACCESS_TOKEN environment variable is required"}},
+			Content: []mcp.Content{&mcp.TextContent{Text: "Gmail not configured. Please authenticate with Google through MCPer."}},
 		}, nil
 	}
 
@@ -294,10 +301,10 @@ func replyMessageHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp
 	args := params.Arguments
 	client := NewGmailClient()
 
-	if client.AccessToken == "" {
+	if !client.isConfigured() {
 		return &mcp.CallToolResultFor[any]{
 			IsError: true,
-			Content: []mcp.Content{&mcp.TextContent{Text: "GMAIL_ACCESS_TOKEN environment variable is required"}},
+			Content: []mcp.Content{&mcp.TextContent{Text: "Gmail not configured. Please authenticate with Google through MCPer."}},
 		}, nil
 	}
 
@@ -329,17 +336,16 @@ func replyMessageHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp
 }
 
 // EmptyParams for tools with no parameters
-// Token is always from GMAIL_ACCESS_TOKEN environment variable
 type EmptyParams struct{}
 
 // listLabelsHandler handles listing Gmail labels
 func listLabelsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[EmptyParams]) (*mcp.CallToolResultFor[any], error) {
 	client := NewGmailClient()
 
-	if client.AccessToken == "" {
+	if !client.isConfigured() {
 		return &mcp.CallToolResultFor[any]{
 			IsError: true,
-			Content: []mcp.Content{&mcp.TextContent{Text: "GMAIL_ACCESS_TOKEN environment variable is required"}},
+			Content: []mcp.Content{&mcp.TextContent{Text: "Gmail not configured. Please authenticate with Google through MCPer."}},
 		}, nil
 	}
 
@@ -361,10 +367,10 @@ func modifyLabelsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp
 	args := params.Arguments
 	client := NewGmailClient()
 
-	if client.AccessToken == "" {
+	if !client.isConfigured() {
 		return &mcp.CallToolResultFor[any]{
 			IsError: true,
-			Content: []mcp.Content{&mcp.TextContent{Text: "GMAIL_ACCESS_TOKEN environment variable is required"}},
+			Content: []mcp.Content{&mcp.TextContent{Text: "Gmail not configured. Please authenticate with Google through MCPer."}},
 		}, nil
 	}
 
@@ -411,7 +417,7 @@ func (c *GmailClient) listMessages(labelIds, query string, maxResults int) (stri
 		params.Set("q", query)
 	}
 
-	endpoint := fmt.Sprintf("%s/messages?%s", gmailAPIBaseURL, params.Encode())
+	endpoint := fmt.Sprintf("%s/messages?%s", c.getGmailBaseURL(), params.Encode())
 
 	resp, err := c.makeRequest("GET", endpoint, nil)
 	if err != nil {
@@ -452,7 +458,7 @@ func (c *GmailClient) listMessages(labelIds, query string, maxResults int) (stri
 
 func (c *GmailClient) getMessageMetadata(messageID string) (string, error) {
 	endpoint := fmt.Sprintf("%s/messages/%s?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date",
-		gmailAPIBaseURL, messageID)
+		c.getGmailBaseURL(), messageID)
 
 	resp, err := c.makeRequest("GET", endpoint, nil)
 	if err != nil {
@@ -491,7 +497,7 @@ func (c *GmailClient) getMessageMetadata(messageID string) (string, error) {
 }
 
 func (c *GmailClient) getMessage(messageID, format string) (string, error) {
-	endpoint := fmt.Sprintf("%s/messages/%s?format=%s", gmailAPIBaseURL, messageID, format)
+	endpoint := fmt.Sprintf("%s/messages/%s?format=%s", c.getGmailBaseURL(), messageID, format)
 
 	resp, err := c.makeRequest("GET", endpoint, nil)
 	if err != nil {
@@ -589,7 +595,7 @@ func (c *GmailClient) sendMessage(to, subject, body, cc, bcc string) (string, er
 	payload := map[string]string{"raw": encoded}
 	payloadBytes, _ := json.Marshal(payload)
 
-	endpoint := fmt.Sprintf("%s/messages/send", gmailAPIBaseURL)
+	endpoint := fmt.Sprintf("%s/messages/send", c.getGmailBaseURL())
 	resp, err := c.makeRequest("POST", endpoint, strings.NewReader(string(payloadBytes)))
 	if err != nil {
 		return "", err
@@ -609,7 +615,7 @@ func (c *GmailClient) sendMessage(to, subject, body, cc, bcc string) (string, er
 
 func (c *GmailClient) replyToMessage(messageID, body string) (string, error) {
 	// Get original message to extract headers
-	origResp, err := c.makeRequest("GET", fmt.Sprintf("%s/messages/%s?format=metadata", gmailAPIBaseURL, messageID), nil)
+	origResp, err := c.makeRequest("GET", fmt.Sprintf("%s/messages/%s?format=metadata", c.getGmailBaseURL(), messageID), nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to get original message: %v", err)
 	}
@@ -663,7 +669,7 @@ func (c *GmailClient) replyToMessage(messageID, body string) (string, error) {
 	}
 	payloadBytes, _ := json.Marshal(payload)
 
-	endpoint := fmt.Sprintf("%s/messages/send", gmailAPIBaseURL)
+	endpoint := fmt.Sprintf("%s/messages/send", c.getGmailBaseURL())
 	resp, err := c.makeRequest("POST", endpoint, strings.NewReader(string(payloadBytes)))
 	if err != nil {
 		return "", err
@@ -682,7 +688,7 @@ func (c *GmailClient) replyToMessage(messageID, body string) (string, error) {
 }
 
 func (c *GmailClient) listLabels() (string, error) {
-	endpoint := fmt.Sprintf("%s/labels", gmailAPIBaseURL)
+	endpoint := fmt.Sprintf("%s/labels", c.getGmailBaseURL())
 
 	resp, err := c.makeRequest("GET", endpoint, nil)
 	if err != nil {
@@ -742,7 +748,7 @@ func (c *GmailClient) modifyLabels(messageID, addLabels, removeLabels string) (s
 
 	payloadBytes, _ := json.Marshal(payload)
 
-	endpoint := fmt.Sprintf("%s/messages/%s/modify", gmailAPIBaseURL, messageID)
+	endpoint := fmt.Sprintf("%s/messages/%s/modify", c.getGmailBaseURL(), messageID)
 	_, err := c.makeRequest("POST", endpoint, strings.NewReader(string(payloadBytes)))
 	if err != nil {
 		return "", err
@@ -765,7 +771,11 @@ func (c *GmailClient) makeRequest(method, endpoint string, body io.Reader) ([]by
 		return nil, err
 	}
 
-	req.Header.Set("Authorization", "Bearer "+c.AccessToken)
+	// Authenticate with the MCPer proxy using the auth token
+	// The proxy will inject the actual Google OAuth token
+	if c.AuthToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.AuthToken)
+	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.HTTPClient.Do(req)
