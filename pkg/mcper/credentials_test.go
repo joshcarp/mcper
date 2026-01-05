@@ -75,7 +75,7 @@ func TestCredentials_GetProxyURL(t *testing.T) {
 		{
 			name:     "valid cloud URL",
 			creds:    &Credentials{CloudURL: "https://api.mcper.com"},
-			expected: "https://api.mcper.com/proxy",
+			expected: "https://api.mcper.com/api/forward",
 		},
 	}
 

@@ -127,7 +127,7 @@ func (c *Credentials) GetProxyURL() string {
 	if c == nil || c.CloudURL == "" {
 		return ""
 	}
-	return c.CloudURL + "/proxy"
+	return c.CloudURL + "/api/forward"
 }
 
 // IsLoggedIn checks if the user is logged in with valid credentials
