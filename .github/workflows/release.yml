@@ -60,6 +60,53 @@ jobs:
           name: mcper-${{ matrix.suffix }}
           path: mcper-${{ matrix.suffix }}
 
+  build-chrome-bridge:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            suffix: linux-amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            suffix: linux-arm64
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+            suffix: darwin-amd64
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            suffix: darwin-arm64
+
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Build chrome-bridge
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          go build -ldflags="-s -w" -o chrome-bridge-${{ matrix.suffix }} ./cmd/chrome-bridge/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-bridge-${{ matrix.suffix }}
+          path: chrome-bridge-${{ matrix.suffix }}
+
   build-plugins:
     runs-on: ubuntu-latest
     permissions:
@@ -83,6 +130,7 @@ jobs:
           GOOS=wasip1 GOARCH=wasm go build -o wasm/plugin-github.wasm ./plugins/github/
           GOOS=wasip1 GOARCH=wasm go build -o wasm/plugin-azuredevops.wasm ./plugins/azuredevops/
           GOOS=wasip1 GOARCH=wasm go build -o wasm/plugin-currency.wasm ./plugins/currency/
+          GOOS=wasip1 GOARCH=wasm go build -o wasm/plugin-chrome.wasm ./plugins/chrome/
 
       - name: Upload plugin artifacts
         uses: actions/upload-artifact@v4
@@ -91,7 +139,7 @@ jobs:
           path: wasm/*.wasm
 
   release:
-    needs: [build-cli, build-plugins]
+    needs: [build-cli, build-chrome-bridge, build-plugins]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -127,6 +175,12 @@ jobs:
 
           # Upload CLI binaries
           for file in dist/mcper-*; do
+            gsutil cp "$file" "gs://$GCS_BUCKET/$VERSION/$(basename $file)"
+            gsutil cp "$file" "gs://$GCS_BUCKET/latest/$(basename $file)"
+          done
+
+          # Upload chrome-bridge binaries
+          for file in dist/chrome-bridge-*; do
             gsutil cp "$file" "gs://$GCS_BUCKET/$VERSION/$(basename $file)"
             gsutil cp "$file" "gs://$GCS_BUCKET/latest/$(basename $file)"
           done
