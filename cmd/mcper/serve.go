@@ -100,9 +100,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Check for cloud credentials and configure proxy
 	var proxyURL string
+	var apiKey string
 	creds, err := mcper.LoadCredentials()
 	if err == nil && creds.IsValid() {
 		proxyURL = creds.GetProxyURL()
+		apiKey = creds.APIKey
 		log.Printf("Logged in as %s, using cloud proxy for OAuth tokens: %s", creds.UserEmail, proxyURL)
 
 		// Fetch remote servers from mcper-cloud
@@ -153,11 +155,24 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 		log.Printf("Plugin %d parsed: type=%d name=%s version=%s", i, parsed.Type, parsed.Name, parsed.Version)
 
+		// Cloud plugins are forwarded to mcper-cloud, not run locally
+		if plugin.IsCloud {
+			log.Printf("Loading cloud plugin: %s (forwarding to mcper-cloud)", plugin.Source)
+			session, err := loadCloudPlugin(ctx, mcpServer, name, plugin, creds)
+			if err != nil {
+				log.Printf("ERROR: failed to load cloud plugin %s: %v", plugin.Source, err)
+				return fmt.Errorf("failed to load cloud plugin %s: %w", plugin.Source, err)
+			}
+			sessions[name] = session
+			log.Printf("Successfully loaded cloud plugin: %s", plugin.Source)
+			continue // Skip local WASM handling
+		}
+
 		switch parsed.Type {
 		case mcper.PluginTypeLocal:
 			// Local WASM file
 			log.Printf("Loading local WASM: %s", plugin.Source)
-			session, err := loadLocalWASM(ctx, wasmHost, mcpServer, name, plugin, proxyURL)
+			session, err := loadLocalWASM(ctx, wasmHost, mcpServer, name, plugin, proxyURL, apiKey)
 			if err != nil {
 				log.Printf("ERROR: failed to load local WASM %s: %v", plugin.Source, err)
 				return fmt.Errorf("failed to load local WASM %s: %w", plugin.Source, err)
@@ -168,7 +183,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		case mcper.PluginTypeWASM:
 			// Remote WASM - check cache first
 			log.Printf("Loading remote WASM: %s", plugin.Source)
-			session, err := loadRemoteWASM(ctx, wasmHost, mcpServer, name, plugin, parsed, proxyURL)
+			session, err := loadRemoteWASM(ctx, wasmHost, mcpServer, name, plugin, parsed, proxyURL, apiKey)
 			if err != nil {
 				log.Printf("ERROR: failed to load remote WASM %s: %v", plugin.Source, err)
 				return fmt.Errorf("failed to load remote WASM %s: %w", plugin.Source, err)
@@ -201,7 +216,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 }
 
 // loadLocalWASM loads a local WASM file and registers its tools
-func loadLocalWASM(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Server, name string, plugin mcper.PluginConfig, proxyURL string) (*mcp.ClientSession, error) {
+func loadLocalWASM(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Server, name string, plugin mcper.PluginConfig, proxyURL, apiKey string) (*mcp.ClientSession, error) {
 	// Resolve source path
 	source := plugin.Source
 	if strings.HasPrefix(source, "./") {
@@ -222,11 +237,11 @@ func loadLocalWASM(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Ser
 	pluginName := strings.TrimSuffix(baseName, ".wasm")
 	pluginName = strings.TrimPrefix(pluginName, "plugin-")
 
-	return runWASMModule(ctx, host, server, name, pluginName, wasmBytes, plugin, proxyURL)
+	return runWASMModule(ctx, host, server, name, pluginName, wasmBytes, plugin, proxyURL, apiKey)
 }
 
 // loadRemoteWASM loads a remote WASM file from cache or downloads it
-func loadRemoteWASM(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Server, name string, plugin mcper.PluginConfig, parsed *mcper.ParsedPlugin, proxyURL string) (*mcp.ClientSession, error) {
+func loadRemoteWASM(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Server, name string, plugin mcper.PluginConfig, parsed *mcper.ParsedPlugin, proxyURL, apiKey string) (*mcp.ClientSession, error) {
 	// Check cache first
 	entry, err := mcper.GetCacheEntry(parsed)
 	if err != nil {
@@ -289,11 +304,11 @@ func loadRemoteWASM(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Se
 		pluginName = name // fallback to internal name
 	}
 
-	return runWASMModule(ctx, host, server, name, pluginName, wasmBytes, plugin, proxyURL)
+	return runWASMModule(ctx, host, server, name, pluginName, wasmBytes, plugin, proxyURL, apiKey)
 }
 
 // runWASMModule loads and runs a WASM module, registering its tools with the MCP server
-func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Server, name string, pluginName string, wasmBytes []byte, plugin mcper.PluginConfig, proxyURL string) (*mcp.ClientSession, error) {
+func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Server, name string, pluginName string, wasmBytes []byte, plugin mcper.PluginConfig, proxyURL, apiKey string) (*mcp.ClientSession, error) {
 	// Load the module
 	if err := host.LoadModule(ctx, name, wasmBytes); err != nil {
 		return nil, fmt.Errorf("failed to load WASM module: %w", err)
@@ -313,8 +328,14 @@ func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Ser
 
 	// Add proxy environment variables if user is logged in
 	if proxyURL != "" {
+		// Standard proxy vars (for HTTP clients that support them)
 		envVars = append(envVars, fmt.Sprintf("HTTP_PROXY=%s", proxyURL))
 		envVars = append(envVars, fmt.Sprintf("HTTPS_PROXY=%s", proxyURL))
+		// MCPER-specific vars (for plugins that use custom proxy logic)
+		envVars = append(envVars, fmt.Sprintf("MCPER_PROXY_URL=%s", proxyURL))
+		if apiKey != "" {
+			envVars = append(envVars, fmt.Sprintf("MCPER_AUTH_TOKEN=%s", apiKey))
+		}
 		log.Printf("Setting proxy for WASM module: %s", proxyURL)
 	}
 
@@ -443,6 +464,95 @@ func loadHTTPPlugin(ctx context.Context, server *mcp.Server, name string, plugin
 	return session, nil
 }
 
+// loadCloudPlugin connects to mcper-cloud's MCP endpoint and forwards its tools
+// This is used for plugins with IsCloud: true - tool calls are forwarded to the cloud
+// instead of running WASM locally
+func loadCloudPlugin(ctx context.Context, server *mcp.Server, name string, plugin mcper.PluginConfig, creds *mcper.Credentials) (*mcp.ClientSession, error) {
+	if creds == nil || !creds.IsValid() {
+		return nil, fmt.Errorf("valid credentials required for cloud plugins")
+	}
+
+	// Connect to mcper-cloud's MCP stream endpoint
+	mcpStreamURL := creds.CloudURL + "/mcp/stream"
+	log.Printf("Connecting to cloud MCP endpoint: %s", mcpStreamURL)
+
+	// Create HTTP client with Bearer token auth
+	httpClient := &http.Client{
+		Transport: &bearerAuthRoundTripper{
+			base:  http.DefaultTransport,
+			token: creds.APIKey,
+		},
+		Timeout: 5 * time.Minute, // Long timeout for streaming
+	}
+
+	// Create MCP client for the cloud server
+	cloudClient := mcp.NewClient("Cloud-"+name, "1.0.0", nil)
+	transport := mcp.NewStreamableClientTransport(mcpStreamURL, &mcp.StreamableClientTransportOptions{
+		HTTPClient: httpClient,
+	})
+
+	session, err := cloudClient.Connect(ctx, transport)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to cloud MCP server: %w", err)
+	}
+
+	// Get tools from the cloud server
+	tools, err := session.ListTools(ctx, nil)
+	if err != nil {
+		session.Close()
+		return nil, fmt.Errorf("failed to list tools from cloud server: %w", err)
+	}
+
+	// Extract plugin name from the source URL
+	parsed, parseErr := mcper.ParsePluginSource(plugin.Source)
+	pluginName := name // fallback
+	if parseErr == nil && parsed.Name != "" {
+		pluginName = parsed.Name
+	}
+
+	// Register each tool with the MCP server
+	for _, tool := range tools.Tools {
+		inputSchema := tool.InputSchema
+		if inputSchema == nil || inputSchema.Type == "" {
+			inputSchema = &jsonschema.Schema{Type: "object", Properties: map[string]*jsonschema.Schema{}}
+		}
+
+		toolSession := session
+		toolName := tool.Name
+		handler := func(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[map[string]any]) (*mcp.CallToolResult, error) {
+			callParams := &mcp.CallToolParams{
+				Name:      toolName,
+				Arguments: params.Arguments,
+			}
+			result, err := toolSession.CallTool(ctx, callParams)
+			if err != nil {
+				return &mcp.CallToolResult{
+					IsError: true,
+					Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Cloud tool call failed: %v", err)}},
+				}, nil
+			}
+			return &mcp.CallToolResult{
+				Meta:    result.Meta,
+				Content: result.Content,
+				IsError: result.IsError,
+			}, nil
+		}
+
+		// Cloud tools use cloud/{pluginName}/{toolName} namespace
+		namespacedName := fmt.Sprintf("cloud/%s/%s", pluginName, tool.Name)
+		server.AddTool(&mcp.Tool{
+			Name:        namespacedName,
+			Description: tool.Description,
+			InputSchema: inputSchema,
+		}, handler)
+
+		log.Printf("Registered cloud tool: %s", namespacedName)
+	}
+
+	log.Printf("Successfully connected to cloud plugin with %d tools", len(tools.Tools))
+	return session, nil
+}
+
 // wasmConn implements io.ReadWriteCloser for WASM communication
 type wasmConn struct {
 	read  io.Reader
@@ -474,4 +584,17 @@ func (stdinoutRWC) Write(p []byte) (n int, err error) {
 
 func (stdinoutRWC) Close() error {
 	return nil
+}
+
+// bearerAuthRoundTripper wraps an http.RoundTripper to add Bearer token auth
+type bearerAuthRoundTripper struct {
+	base  http.RoundTripper
+	token string
+}
+
+func (rt *bearerAuthRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Clone the request to avoid mutating the original
+	req2 := req.Clone(req.Context())
+	req2.Header.Set("Authorization", "Bearer "+rt.token)
+	return rt.base.RoundTrip(req2)
 }
