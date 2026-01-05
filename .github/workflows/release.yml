@@ -138,6 +138,16 @@ jobs:
           name: wasm-plugins
           path: wasm/*.wasm
 
+      - name: Create Chrome extension zip
+        run: |
+          cd extension && zip -r chrome-extension.zip chrome/
+
+      - name: Upload Chrome extension zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-extension
+          path: extension/chrome-extension.zip
+
   release:
     needs: [build-cli, build-chrome-bridge, build-plugins]
     runs-on: ubuntu-latest
@@ -190,6 +200,12 @@ jobs:
             gsutil cp "$file" "gs://$GCS_BUCKET/$VERSION/$(basename $file)"
             gsutil cp "$file" "gs://$GCS_BUCKET/latest/$(basename $file)"
           done
+
+          # Upload Chrome extension zip
+          if [ -f dist/chrome-extension.zip ]; then
+            gsutil cp dist/chrome-extension.zip "gs://$GCS_BUCKET/$VERSION/chrome-extension.zip"
+            gsutil cp dist/chrome-extension.zip "gs://$GCS_BUCKET/latest/chrome-extension.zip"
+          fi
 
           # Make all files publicly readable
           gsutil -m acl ch -r -u AllUsers:R "gs://$GCS_BUCKET/$VERSION/"
