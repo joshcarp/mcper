@@ -10,6 +10,10 @@ wasm-build:
 	GOOS=wasip1 GOARCH=wasm go build -o ./wasm/plugin-github.wasm ./plugins/github/
 	GOOS=wasip1 GOARCH=wasm go build -o ./wasm/plugin-azuredevops.wasm ./plugins/azuredevops/
 	GOOS=wasip1 GOARCH=wasm go build -o ./wasm/plugin-currency.wasm ./plugins/currency/
+	GOOS=wasip1 GOARCH=wasm go build -o ./wasm/plugin-chrome.wasm ./plugins/chrome/
+
+chrome-bridge:
+	go build -o ./bin/chrome-bridge ./cmd/chrome-bridge/
 
 test:
 	go test -timeout 30s -count=1 -v -cover ./...

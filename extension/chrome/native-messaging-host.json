@@ -1,0 +1,9 @@
+{
+  "name": "com.mcper.chrome_bridge",
+  "description": "MCPER Chrome Bridge Native Messaging Host",
+  "path": "/usr/local/bin/chrome-bridge",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://EXTENSION_ID_HERE/"
+  ]
+}
