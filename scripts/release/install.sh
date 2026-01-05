@@ -43,6 +43,23 @@ detect_platform() {
     printf '%s-%s' "$os" "$arch"
 }
 
+# Get version to install (fetches from GCS latest.json if "latest")
+get_version() {
+    version="${1:-$DEFAULT_VERSION}"
+
+    if [ "$version" = "latest" ]; then
+        # Fetch latest version from GCS latest.json
+        latest_url="${GCS_BUCKET}/latest.json"
+        version=$(curl -sSL "$latest_url" 2>/dev/null | grep '"version"' | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')
+
+        if [ -z "$version" ]; then
+            error "Failed to fetch latest version from ${latest_url}"
+        fi
+    fi
+
+    printf '%s' "$version"
+}
+
 # Download and install mcper
 install_mcper() {
     version="$1"
@@ -57,7 +74,7 @@ install_mcper() {
             ;;
     esac
 
-    download_url="${GCS_BUCKET}/${version}/${asset_name}"
+    download_url="${GCS_BUCKET}/v${version}/${asset_name}"
 
     info "Downloading mcper (${version}) for ${platform}..."
     info "URL: $download_url"
@@ -157,13 +174,15 @@ verify_install() {
 }
 
 main() {
-    version="${1:-$DEFAULT_VERSION}"
+    requested_version="${1:-$DEFAULT_VERSION}"
 
     info "Installing mcper..."
 
     platform=$(detect_platform)
     info "Detected platform: $platform"
 
+    # Resolve "latest" to actual version number
+    version=$(get_version "$requested_version")
     info "Version: $version"
 
     install_mcper "$version" "$platform"

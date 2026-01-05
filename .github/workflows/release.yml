@@ -97,6 +97,9 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -137,6 +140,17 @@ jobs:
           # Make all files publicly readable
           gsutil -m acl ch -r -u AllUsers:R "gs://$GCS_BUCKET/$VERSION/"
           gsutil -m acl ch -r -u AllUsers:R "gs://$GCS_BUCKET/latest/"
+
+      - name: Upload latest.json
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          DATE=$(date +%Y-%m-%d)
+          echo "{\"version\": \"${VERSION}\", \"date\": \"${DATE}\"}" > latest.json
+          gsutil -h "Cache-Control:no-cache, max-age=0" cp latest.json gs://$GCS_BUCKET/latest.json
+
+      - name: Upload install.sh
+        run: |
+          gsutil -h "Cache-Control:no-cache, max-age=0" cp scripts/release/install.sh gs://$GCS_BUCKET/install.sh
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
