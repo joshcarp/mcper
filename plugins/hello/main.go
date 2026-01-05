@@ -54,50 +54,10 @@ func helloHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallTo
 		name = "World"
 	}
 
-	// Make an HTTP call to test if this works with WASI
-	log.Printf("Making HTTP call for user: %s", name)
+	// Simple hello response - no external HTTP calls needed
+	message := fmt.Sprintf("Hello, %s! Welcome to the Hello World MCP Server! 🎉", name)
+	log.Printf("Greeting user: %s", name)
 
-	// Create HTTP client with timeout
-	// Force HTTP/1.1 - WASM runtime doesn't support HTTP/2 parsing
-	// Clone default transport to preserve stealthrocket/net WASM patches
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	// Disable HTTP/2 by setting TLSNextProto to empty map
-	// This is more reliable than NextProtos in WASM context
-	transport.TLSNextProto = make(map[string]func(authority string, c *tls.Conn) http.RoundTripper)
-	// Also set NextProtos as a belt-and-suspenders approach
-	if transport.TLSClientConfig == nil {
-		transport.TLSClientConfig = &tls.Config{}
-	}
-	transport.TLSClientConfig.NextProtos = []string{"http/1.1"}
-	client := &http.Client{
-		Timeout:   10 * time.Second,
-		Transport: transport,
-	}
-
-	// Make a simple HTTP GET request
-	resp, err := client.Get("https://httpbin.org/get")
-	if err != nil {
-		log.Printf("HTTP call failed: %v", err)
-		return &mcp.CallToolResultFor[any]{
-			IsError: true,
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("HTTP call failed: %v", err)}},
-		}, nil
-	}
-	defer resp.Body.Close()
-
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Printf("Failed to read response body: %v", err)
-		return &mcp.CallToolResultFor[any]{
-			IsError: true,
-			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Failed to read response body: %v", err)}},
-		}, nil
-	}
-
-	log.Printf("HTTP call successful, status: %d, body length: %d", resp.StatusCode, len(body))
-
-	message := fmt.Sprintf("Hello, %s! Welcome to the Hello World MCP Server! 🎉 (HTTP call successful: %d)", name, resp.StatusCode)
 	return &mcp.CallToolResultFor[any]{
 		Content: []mcp.Content{&mcp.TextContent{Text: message}},
 	}, nil
