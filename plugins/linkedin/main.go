@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -38,10 +39,19 @@ func NewLinkedInClient(accessToken string) *LinkedInClient {
 		accessToken = placeholderToken
 	}
 
+	// Force HTTP/1.1 - WASM runtime doesn't support HTTP/2 parsing
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSNextProto = make(map[string]func(authority string, c *tls.Conn) http.RoundTripper)
+	if transport.TLSClientConfig == nil {
+		transport.TLSClientConfig = &tls.Config{}
+	}
+	transport.TLSClientConfig.NextProtos = []string{"http/1.1"}
+
 	return &LinkedInClient{
 		AccessToken: accessToken,
 		HTTPClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout:   30 * time.Second,
+			Transport: transport,
 		},
 	}
 }

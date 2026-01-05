@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -34,11 +35,20 @@ type AzureDevOpsClient struct {
 
 // NewAzureDevOpsClient creates a new Azure DevOps API client using environment variables
 func NewAzureDevOpsClient() *AzureDevOpsClient {
+	// Force HTTP/1.1 - WASM runtime doesn't support HTTP/2 parsing
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSNextProto = make(map[string]func(authority string, c *tls.Conn) http.RoundTripper)
+	if transport.TLSClientConfig == nil {
+		transport.TLSClientConfig = &tls.Config{}
+	}
+	transport.TLSClientConfig.NextProtos = []string{"http/1.1"}
+
 	return &AzureDevOpsClient{
 		PAT:          os.Getenv("AZURE_DEVOPS_PAT"),
 		Organization: os.Getenv("AZURE_DEVOPS_ORG"),
 		HTTPClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout:   30 * time.Second,
+			Transport: transport,
 		},
 	}
 }

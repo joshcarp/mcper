@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -53,13 +54,22 @@ func NewGitHubClient() *GitHubClient {
 	proxyURL := os.Getenv("MCPER_PROXY_URL")
 	useProxy := proxyURL != ""
 
+	// Force HTTP/1.1 - WASM runtime doesn't support HTTP/2 parsing
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSNextProto = make(map[string]func(authority string, c *tls.Conn) http.RoundTripper)
+	if transport.TLSClientConfig == nil {
+		transport.TLSClientConfig = &tls.Config{}
+	}
+	transport.TLSClientConfig.NextProtos = []string{"http/1.1"}
+
 	return &GitHubClient{
 		Token:     os.Getenv("GITHUB_TOKEN"),
 		ProxyAuth: os.Getenv("MCPER_AUTH_TOKEN"), // Auth token for proxy requests
 		BaseURL:   getAPIBaseURL(),
 		UseProxy:  useProxy,
 		HTTPClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout:   30 * time.Second,
+			Transport: transport,
 		},
 	}
 }

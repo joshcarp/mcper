@@ -30,9 +30,12 @@ func NewCurrencyClient() *CurrencyClient {
 	// Force HTTP/1.1 - WASM runtime doesn't support HTTP/2 parsing
 	// Clone default transport to preserve stealthrocket/net WASM patches
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{
-		NextProtos: []string{"http/1.1"},
+	// Disable HTTP/2 by setting TLSNextProto to empty map
+	transport.TLSNextProto = make(map[string]func(authority string, c *tls.Conn) http.RoundTripper)
+	if transport.TLSClientConfig == nil {
+		transport.TLSClientConfig = &tls.Config{}
 	}
+	transport.TLSClientConfig.NextProtos = []string{"http/1.1"}
 	return &CurrencyClient{
 		HTTPClient: &http.Client{
 			Timeout:   30 * time.Second,
