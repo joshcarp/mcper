@@ -664,9 +664,9 @@ func loadCloudPlugin(ctx context.Context, server *mcp.Server, name string, plugi
 		return nil, fmt.Errorf("valid credentials required for cloud plugins")
 	}
 
-	// Connect to mcper-cloud's MCP stream endpoint
-	mcpStreamURL := creds.CloudURL + "/mcp/stream"
-	log.Printf("Connecting to cloud MCP endpoint: %s", mcpStreamURL)
+	// Connect to mcper-cloud's MCP endpoint (Streamable HTTP transport)
+	mcpEndpointURL := creds.CloudURL + "/mcp"
+	log.Printf("Connecting to cloud MCP endpoint: %s", mcpEndpointURL)
 
 	// Create HTTP client with Bearer token auth
 	httpClient := &http.Client{
@@ -679,7 +679,7 @@ func loadCloudPlugin(ctx context.Context, server *mcp.Server, name string, plugi
 
 	// Create MCP client for the cloud server
 	cloudClient := mcp.NewClient("Cloud-"+name, "1.0.0", nil)
-	transport := mcp.NewStreamableClientTransport(mcpStreamURL, &mcp.StreamableClientTransportOptions{
+	transport := mcp.NewStreamableClientTransport(mcpEndpointURL, &mcp.StreamableClientTransportOptions{
 		HTTPClient: httpClient,
 	})
 
