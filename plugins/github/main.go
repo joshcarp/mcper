@@ -42,6 +42,7 @@ func getAPIBaseURL() string {
 type GitHubClient struct {
 	Token      string
 	ProxyAuth  string // Auth token for the mcper proxy
+	UserID     string // User ID for cloud-hosted proxy authentication
 	BaseURL    string
 	UseProxy   bool
 	HTTPClient *http.Client
@@ -51,6 +52,12 @@ type GitHubClient struct {
 // Uses GITHUB_TOKEN from environment if available
 // Uses MCPER_PROXY_URL for token injection when running via mcper-cloud
 func NewGitHubClient() *GitHubClient {
+	return NewGitHubClientWithUserID("")
+}
+
+// NewGitHubClientWithUserID creates a new GitHub API client with a specific user ID
+// The userID is passed to the proxy for OAuth token injection in cloud-hosted mode
+func NewGitHubClientWithUserID(userID string) *GitHubClient {
 	proxyURL := os.Getenv("MCPER_PROXY_URL")
 	useProxy := proxyURL != ""
 
@@ -65,6 +72,7 @@ func NewGitHubClient() *GitHubClient {
 	return &GitHubClient{
 		Token:     os.Getenv("GITHUB_TOKEN"),
 		ProxyAuth: os.Getenv("MCPER_AUTH_TOKEN"), // Auth token for proxy requests
+		UserID:    userID,
 		BaseURL:   getAPIBaseURL(),
 		UseProxy:  useProxy,
 		HTTPClient: &http.Client{
@@ -72,6 +80,17 @@ func NewGitHubClient() *GitHubClient {
 			Transport: transport,
 		},
 	}
+}
+
+// getUserIDFromMeta extracts the userID from MCP call metadata
+func getUserIDFromMeta(meta map[string]any) string {
+	if meta == nil {
+		return ""
+	}
+	if userID, ok := meta["userID"].(string); ok {
+		return userID
+	}
+	return ""
 }
 
 func main() {
@@ -258,7 +277,7 @@ type ListCommitsParams struct {
 
 func listReposHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ListReposParams]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
-	client := NewGitHubClient()
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
 
 	var endpoint string
 	if args.Org != "" {
@@ -327,7 +346,7 @@ func listReposHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Ca
 
 func getRepoHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetRepoParams]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
-	client := NewGitHubClient()
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
 
 	if args.Owner == "" || args.Repo == "" {
 		return errorResult("owner and repo are required"), nil
@@ -387,7 +406,7 @@ func getRepoHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 
 func searchReposHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[SearchReposParams]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
-	client := NewGitHubClient()
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
 
 	if args.Query == "" {
 		return errorResult("query is required"), nil
@@ -443,7 +462,7 @@ func searchReposHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 
 func listIssuesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ListIssuesParams]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
-	client := NewGitHubClient()
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
 
 	if args.Owner == "" || args.Repo == "" {
 		return errorResult("owner and repo are required"), nil
@@ -519,7 +538,7 @@ func listIssuesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 
 func getIssueHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetIssueParams]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
-	client := NewGitHubClient()
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
 
 	if args.Owner == "" || args.Repo == "" || args.IssueNumber == 0 {
 		return errorResult("owner, repo, and issue_number are required"), nil
@@ -601,7 +620,7 @@ func getIssueHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Cal
 
 func createIssueHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[CreateIssueParams]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
-	client := NewGitHubClient()
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
 
 	if client.Token == "" {
 		return errorResult("Token required to create issues"), nil
@@ -643,7 +662,7 @@ func createIssueHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 
 func addIssueCommentHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[AddCommentParams]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
-	client := NewGitHubClient()
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
 
 	if client.Token == "" {
 		return errorResult("Token required to add comments"), nil
@@ -677,7 +696,7 @@ func addIssueCommentHandler(ctx context.Context, cc *mcp.ServerSession, params *
 
 func listPRsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ListPRsParams]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
-	client := NewGitHubClient()
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
 
 	if args.Owner == "" || args.Repo == "" {
 		return errorResult("owner and repo are required"), nil
@@ -746,7 +765,7 @@ func listPRsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 
 func getPRHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetPRParams]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
-	client := NewGitHubClient()
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
 
 	if args.Owner == "" || args.Repo == "" || args.PRNumber == 0 {
 		return errorResult("owner, repo, and pr_number are required"), nil
@@ -832,7 +851,7 @@ func getPRHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallTo
 
 func getPRDiffHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetPRParams]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
-	client := NewGitHubClient()
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
 
 	if args.Owner == "" || args.Repo == "" || args.PRNumber == 0 {
 		return errorResult("owner, repo, and pr_number are required"), nil
@@ -850,7 +869,7 @@ func getPRDiffHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Ca
 
 func listPRFilesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetPRParams]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
-	client := NewGitHubClient()
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
 
 	if args.Owner == "" || args.Repo == "" || args.PRNumber == 0 {
 		return errorResult("owner, repo, and pr_number are required"), nil
@@ -896,7 +915,7 @@ func listPRFilesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 
 func getFileHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetFileParams]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
-	client := NewGitHubClient()
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
 
 	if args.Owner == "" || args.Repo == "" || args.Path == "" {
 		return errorResult("owner, repo, and path are required"), nil
@@ -953,7 +972,7 @@ func getFileHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 
 func searchCodeHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[SearchCodeParams]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
-	client := NewGitHubClient()
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
 
 	if args.Query == "" {
 		return errorResult("query is required (e.g., 'addClass repo:jquery/jquery')"), nil
@@ -1005,7 +1024,7 @@ func searchCodeHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 
 func getUserHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetUserParams]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
-	client := NewGitHubClient()
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
 
 	if args.Username == "" {
 		return errorResult("username is required"), nil
@@ -1067,7 +1086,7 @@ func getUserHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 
 func listCommitsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ListCommitsParams]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
-	client := NewGitHubClient()
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
 
 	if args.Owner == "" || args.Repo == "" {
 		return errorResult("owner and repo are required"), nil
@@ -1137,9 +1156,15 @@ func (c *GitHubClient) makeRequestWithAccept(method, endpoint string, body io.Re
 		return nil, err
 	}
 
-	if c.UseProxy && c.ProxyAuth != "" {
-		// When using mcper proxy, pass API key for auth - proxy injects OAuth token
-		req.Header.Set("Authorization", "Bearer "+c.ProxyAuth)
+	if c.UseProxy {
+		// When using mcper proxy, pass user ID for OAuth token injection
+		if c.UserID != "" {
+			req.Header.Set("X-MCPer-Internal-User-ID", c.UserID)
+		}
+		if c.ProxyAuth != "" {
+			// Also pass API key for additional auth if available
+			req.Header.Set("Authorization", "Bearer "+c.ProxyAuth)
+		}
 	} else if c.Token != "" {
 		// Direct API call with local GitHub token
 		req.Header.Set("Authorization", "Bearer "+c.Token)
