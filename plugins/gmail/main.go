@@ -25,12 +25,13 @@ import (
 // GmailClient handles API communication through the MCPer proxy
 type GmailClient struct {
 	ProxyURL   string // MCPER_PROXY_URL - the proxy endpoint for token injection
-	AuthToken  string // MCPER_AUTH_TOKEN - auth token for the proxy
+	AuthToken  string // MCPER_AUTH_TOKEN - auth token for the proxy (CLI mode)
+	UserID     string // User ID from MCP meta field (cloud mode)
 	HTTPClient *http.Client
 }
 
 // NewGmailClient creates a new Gmail API client using MCPer proxy for token injection
-func NewGmailClient() *GmailClient {
+func NewGmailClient(userID string) *GmailClient {
 	// Force HTTP/1.1 - WASM runtime doesn't support HTTP/2 parsing
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSNextProto = make(map[string]func(authority string, c *tls.Conn) http.RoundTripper)
@@ -42,11 +43,23 @@ func NewGmailClient() *GmailClient {
 	return &GmailClient{
 		ProxyURL:  os.Getenv("MCPER_PROXY_URL"),
 		AuthToken: os.Getenv("MCPER_AUTH_TOKEN"),
+		UserID:    userID,
 		HTTPClient: &http.Client{
 			Timeout:   30 * time.Second,
 			Transport: transport,
 		},
 	}
+}
+
+// extractUserID extracts userID from MCP meta field
+func extractUserID(meta mcp.Meta) string {
+	if meta == nil {
+		return ""
+	}
+	if userID, ok := meta["userID"].(string); ok {
+		return userID
+	}
+	return ""
 }
 
 // getGmailBaseURL returns the Gmail API base URL through the proxy
@@ -60,8 +73,9 @@ func (c *GmailClient) getGmailBaseURL() string {
 }
 
 // isConfigured returns true if the client has proxy configuration
+// Either AuthToken (CLI mode) or UserID (cloud mode) is required
 func (c *GmailClient) isConfigured() bool {
-	return c.ProxyURL != "" && c.AuthToken != ""
+	return c.ProxyURL != "" && (c.AuthToken != "" || c.UserID != "")
 }
 
 func main() {
@@ -156,7 +170,8 @@ type ModifyLabelsParams struct {
 // listMessagesHandler handles listing Gmail messages
 func listMessagesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ListMessagesParams]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
-	client := NewGmailClient()
+	userID := extractUserID(params.Meta)
+	client := NewGmailClient(userID)
 
 	if !client.isConfigured() {
 		return &mcp.CallToolResultFor[any]{
@@ -186,7 +201,8 @@ func listMessagesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp
 // getMessageHandler handles getting a specific message
 func getMessageHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetMessageParams]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
-	client := NewGmailClient()
+	userID := extractUserID(params.Meta)
+	client := NewGmailClient(userID)
 
 	if !client.isConfigured() {
 		return &mcp.CallToolResultFor[any]{
@@ -223,7 +239,8 @@ func getMessageHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 // searchMessagesHandler handles searching messages
 func searchMessagesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[SearchParams]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
-	client := NewGmailClient()
+	userID := extractUserID(params.Meta)
+	client := NewGmailClient(userID)
 
 	if !client.isConfigured() {
 		return &mcp.CallToolResultFor[any]{
@@ -260,7 +277,8 @@ func searchMessagesHandler(ctx context.Context, cc *mcp.ServerSession, params *m
 // sendMessageHandler handles sending a new message
 func sendMessageHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[SendMessageParams]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
-	client := NewGmailClient()
+	userID := extractUserID(params.Meta)
+	client := NewGmailClient(userID)
 
 	if !client.isConfigured() {
 		return &mcp.CallToolResultFor[any]{
@@ -299,7 +317,8 @@ func sendMessageHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 // replyMessageHandler handles replying to a message
 func replyMessageHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ReplyMessageParams]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
-	client := NewGmailClient()
+	userID := extractUserID(params.Meta)
+	client := NewGmailClient(userID)
 
 	if !client.isConfigured() {
 		return &mcp.CallToolResultFor[any]{
@@ -340,7 +359,8 @@ type EmptyParams struct{}
 
 // listLabelsHandler handles listing Gmail labels
 func listLabelsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[EmptyParams]) (*mcp.CallToolResultFor[any], error) {
-	client := NewGmailClient()
+	userID := extractUserID(params.Meta)
+	client := NewGmailClient(userID)
 
 	if !client.isConfigured() {
 		return &mcp.CallToolResultFor[any]{
@@ -365,7 +385,8 @@ func listLabelsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 // modifyLabelsHandler handles modifying message labels
 func modifyLabelsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ModifyLabelsParams]) (*mcp.CallToolResultFor[any], error) {
 	args := params.Arguments
-	client := NewGmailClient()
+	userID := extractUserID(params.Meta)
+	client := NewGmailClient(userID)
 
 	if !client.isConfigured() {
 		return &mcp.CallToolResultFor[any]{
@@ -771,10 +792,14 @@ func (c *GmailClient) makeRequest(method, endpoint string, body io.Reader) ([]by
 		return nil, err
 	}
 
-	// Authenticate with the MCPer proxy using the auth token
-	// The proxy will inject the actual Google OAuth token
+	// Authenticate with the MCPer proxy
+	// CLI mode: use auth token as Bearer
+	// Cloud mode: use internal user ID header (proxy looks up OAuth token for this user)
 	if c.AuthToken != "" {
 		req.Header.Set("Authorization", "Bearer "+c.AuthToken)
+	}
+	if c.UserID != "" {
+		req.Header.Set("X-MCPer-Internal-User-ID", c.UserID)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
