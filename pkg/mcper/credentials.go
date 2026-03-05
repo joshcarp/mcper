@@ -19,7 +19,7 @@ type Credentials struct {
 }
 
 // DefaultCloudURL is the default mcper-cloud server URL
-const DefaultCloudURL = "https://mcper-cloud-production.up.railway.app"
+const DefaultCloudURL = "https://mcper-9161453686.us-central1.run.app"
 
 // CredentialsFile is the filename for stored credentials
 const CredentialsFile = "credentials.json"
