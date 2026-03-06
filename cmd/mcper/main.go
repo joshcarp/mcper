@@ -46,6 +46,9 @@ func init() {
 	rootCmd.AddCommand(pluginCmd)
 	rootCmd.AddCommand(registryCmd)
 
+	// API proxy generation
+	rootCmd.AddCommand(addAPICmd)
+
 	// Cloud integration commands
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(loginAPIKeyCmd)
