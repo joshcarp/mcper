@@ -579,13 +579,15 @@ func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Ser
 		}
 
 		// Create namespaced tool name based on source:
-		// - Local WASM: wasm/<pluginName>/<toolName>
-		// - Cloud WASM: cloud/<pluginName>/<toolName>
+		// - Local WASM: wasm_<pluginName>_<toolName>
+		// - Cloud WASM: cloud_<pluginName>_<toolName>
+		// Uses underscores (not slashes) to comply with Claude.ai's
+		// tool name pattern: ^[a-zA-Z0-9_-]{1,64}$
 		namespace := "wasm"
 		if plugin.IsCloud {
 			namespace = "cloud"
 		}
-		namespacedName := fmt.Sprintf("%s/%s/%s", namespace, pluginName, tool.Name)
+		namespacedName := fmt.Sprintf("%s_%s_%s", namespace, pluginName, tool.Name)
 		server.AddTool(&mcp.Tool{
 			Name:        namespacedName,
 			Description: tool.Description,
@@ -642,8 +644,9 @@ func loadHTTPPlugin(ctx context.Context, server *mcp.Server, name string, plugin
 			}, nil
 		}
 
-		// Create namespaced tool name: http/<pluginName>/<toolName>
-		namespacedName := fmt.Sprintf("http/%s/%s", pluginName, tool.Name)
+		// Create namespaced tool name: http_<pluginName>_<toolName>
+		// Uses underscores to comply with Claude.ai's tool name pattern
+		namespacedName := fmt.Sprintf("http_%s_%s", pluginName, tool.Name)
 		server.AddTool(&mcp.Tool{
 			Name:        namespacedName,
 			Description: tool.Description,
@@ -730,8 +733,9 @@ func loadCloudPlugin(ctx context.Context, server *mcp.Server, name string, plugi
 			}, nil
 		}
 
-		// Cloud tools use cloud/{pluginName}/{toolName} namespace
-		namespacedName := fmt.Sprintf("cloud/%s/%s", pluginName, tool.Name)
+		// Cloud tools use cloud_<pluginName>_<toolName> namespace
+		// Uses underscores to comply with Claude.ai's tool name pattern
+		namespacedName := fmt.Sprintf("cloud_%s_%s", pluginName, tool.Name)
 		server.AddTool(&mcp.Tool{
 			Name:        namespacedName,
 			Description: tool.Description,
