@@ -40,6 +40,7 @@ func init() {
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(addCmd)
 	rootCmd.AddCommand(serveCmd)
+	rootCmd.AddCommand(bridgeCmd)
 	rootCmd.AddCommand(cacheCmd)
 	rootCmd.AddCommand(enableCmd)
 	rootCmd.AddCommand(updateCmd)
