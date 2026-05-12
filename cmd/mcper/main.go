@@ -44,6 +44,7 @@ func init() {
 	rootCmd.AddCommand(cacheCmd)
 	rootCmd.AddCommand(enableCmd)
 	rootCmd.AddCommand(updateCmd)
+	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(pluginCmd)
 	rootCmd.AddCommand(registryCmd)
 
