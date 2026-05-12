@@ -23,8 +23,8 @@ github.com/google/jsonschema-go v0.4.3 h1:/DBOLZTfDow7pe2GmaJNhltueGTtDKICi8V8p+
 github.com/google/jsonschema-go v0.4.3/go.mod h1:r5quNTdLOYEz95Ru18zA0ydNbBuYoo9tgaYcxEYhJVE=
 github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
-github.com/joshcarp/go-sdk v0.0.0-20260512025729-68aecd5fe262 h1:EnC8uEylDsYjioHY6FRmfAJ3G7favBOw7QyJ2RL04Sk=
-github.com/joshcarp/go-sdk v0.0.0-20260512025729-68aecd5fe262/go.mod h1:LdyuPD8yiS33w5ido40XqMyKhop69Sid6Nj9ITxQkIo=
+github.com/joshcarp/go-sdk v0.0.0-20260512042639-e648fa1f08dd h1:zcA8p0EzVQjQ1fmG0qSGGZqEpcs2zTaAYR6pmz6DJf0=
+github.com/joshcarp/go-sdk v0.0.0-20260512042639-e648fa1f08dd/go.mod h1:LdyuPD8yiS33w5ido40XqMyKhop69Sid6Nj9ITxQkIo=
 github.com/ledongthuc/pdf v0.0.0-20220302134840-0c2507a12d80 h1:6Yzfa6GP0rIo/kULo2bwGEkFvCePZ3qHDDTC3/J9Swo=
 github.com/ledongthuc/pdf v0.0.0-20220302134840-0c2507a12d80/go.mod h1:imJHygn/1yfhB7XSJJKlFZKl/J+dCPAknuiaGOshXAs=
 github.com/orisano/pixelmatch v0.0.0-20220722002657-fb0b55479cde h1:x0TT0RDC7UhAVbbWWBzr41ElhJx5tXPWkIHA2HWPRuw=

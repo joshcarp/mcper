@@ -31,4 +31,4 @@ require (
 	golang.org/x/time v0.15.0 // indirect
 )
 
-replace github.com/modelcontextprotocol/go-sdk => github.com/joshcarp/go-sdk v0.0.0-20260512025729-68aecd5fe262
+replace github.com/modelcontextprotocol/go-sdk => github.com/joshcarp/go-sdk v0.0.0-20260512042639-e648fa1f08dd
