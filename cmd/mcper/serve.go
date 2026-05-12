@@ -25,6 +25,14 @@ var (
 	configJSON string
 )
 
+// Tool name namespace prefixes. Tool names follow ^[a-zA-Z0-9_-]{1,64}$
+// for Claude.ai connector compatibility, so the separator is underscore.
+const (
+	namespaceWASM  = "wasm"
+	namespaceHTTP  = "http"
+	namespaceCloud = "cloud"
+)
+
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Run MCP server with plugins",
@@ -553,49 +561,12 @@ func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Ser
 	}
 
 	// Register each tool with the MCP server
+	namespace := namespaceWASM
+	if plugin.IsCloud {
+		namespace = namespaceCloud
+	}
 	for _, tool := range tools.Tools {
-		inputSchemaAny := tool.InputSchema
-		inputSchema, _ := inputSchemaAny.(*jsonschema.Schema)
-		if inputSchema == nil || inputSchema.Type == "" {
-			inputSchema = &jsonschema.Schema{Type: "object", Properties: map[string]*jsonschema.Schema{}}
-		}
-
-		// Create a handler that forwards calls to the WASM module
-		toolSession := session
-		toolName := tool.Name
-		handler := func(ctx context.Context, _ *mcp.CallToolRequest, input map[string]any) (*mcp.CallToolResult, any, error) {
-			callParams := &mcp.CallToolParams{
-				Name:      toolName,
-				Arguments: input,
-			}
-			result, err := toolSession.CallTool(ctx, callParams)
-			if err != nil {
-				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Tool call failed: %v", err)}}}, nil, nil
-			}
-			return &mcp.CallToolResult{
-				Meta:    result.Meta,
-				Content: result.Content,
-				IsError: result.IsError,
-			}, nil, nil
-		}
-
-		// Create namespaced tool name based on source:
-		// - Local WASM: wasm_<pluginName>_<toolName>
-		// - Cloud WASM: cloud_<pluginName>_<toolName>
-		// Uses underscores (not slashes) to comply with Claude.ai's
-		// tool name pattern: ^[a-zA-Z0-9_-]{1,64}$
-		namespace := "wasm"
-		if plugin.IsCloud {
-			namespace = "cloud"
-		}
-		namespacedName := fmt.Sprintf("%s_%s_%s", namespace, pluginName, tool.Name)
-		mcp.AddTool[map[string]any, any](server, &mcp.Tool{
-			Name:        namespacedName,
-			Description: tool.Description,
-			InputSchema: inputSchema,
-		}, handler)
-
-		log.Printf("Registered tool: %s", namespacedName)
+		registerForwardedTool(server, session, namespace, pluginName, "Tool call failed", tool)
 	}
 
 	return session, nil
@@ -622,40 +593,7 @@ func loadHTTPPlugin(ctx context.Context, server *mcp.Server, name string, plugin
 
 	// Register each tool with the MCP server
 	for _, tool := range tools.Tools {
-		inputSchemaAny := tool.InputSchema
-		inputSchema, _ := inputSchemaAny.(*jsonschema.Schema)
-		if inputSchema == nil || inputSchema.Type == "" {
-			inputSchema = &jsonschema.Schema{Type: "object", Properties: map[string]*jsonschema.Schema{}}
-		}
-
-		toolSession := session
-		toolName := tool.Name
-		handler := func(ctx context.Context, _ *mcp.CallToolRequest, input map[string]any) (*mcp.CallToolResult, any, error) {
-			callParams := &mcp.CallToolParams{
-				Name:      toolName,
-				Arguments: input,
-			}
-			result, err := toolSession.CallTool(ctx, callParams)
-			if err != nil {
-				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Tool call failed: %v", err)}}}, nil, nil
-			}
-			return &mcp.CallToolResult{
-				Meta:    result.Meta,
-				Content: result.Content,
-				IsError: result.IsError,
-			}, nil, nil
-		}
-
-		// Create namespaced tool name: http_<pluginName>_<toolName>
-		// Uses underscores to comply with Claude.ai's tool name pattern
-		namespacedName := fmt.Sprintf("http_%s_%s", pluginName, tool.Name)
-		mcp.AddTool[map[string]any, any](server, &mcp.Tool{
-			Name:        namespacedName,
-			Description: tool.Description,
-			InputSchema: inputSchema,
-		}, handler)
-
-		log.Printf("Registered HTTP tool: %s", namespacedName)
+		registerForwardedTool(server, session, namespaceHTTP, pluginName, "Tool call failed", tool)
 	}
 
 	return session, nil
@@ -710,47 +648,51 @@ func loadCloudPlugin(ctx context.Context, server *mcp.Server, name string, plugi
 
 	// Register each tool with the MCP server
 	for _, tool := range tools.Tools {
-		inputSchemaAny := tool.InputSchema
-		inputSchema, _ := inputSchemaAny.(*jsonschema.Schema)
-		if inputSchema == nil || inputSchema.Type == "" {
-			inputSchema = &jsonschema.Schema{Type: "object", Properties: map[string]*jsonschema.Schema{}}
-		}
-
-		toolSession := session
-		toolName := tool.Name
-		handler := func(ctx context.Context, _ *mcp.CallToolRequest, input map[string]any) (*mcp.CallToolResult, any, error) {
-			callParams := &mcp.CallToolParams{
-				Name:      toolName,
-				Arguments: input,
-			}
-			result, err := toolSession.CallTool(ctx, callParams)
-			if err != nil {
-				return &mcp.CallToolResult{
-					IsError: true,
-					Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Cloud tool call failed: %v", err)}},
-				}, nil, nil
-			}
-			return &mcp.CallToolResult{
-				Meta:    result.Meta,
-				Content: result.Content,
-				IsError: result.IsError,
-			}, nil, nil
-		}
-
-		// Cloud tools use cloud_<pluginName>_<toolName> namespace
-		// Uses underscores to comply with Claude.ai's tool name pattern
-		namespacedName := fmt.Sprintf("cloud_%s_%s", pluginName, tool.Name)
-		mcp.AddTool[map[string]any, any](server, &mcp.Tool{
-			Name:        namespacedName,
-			Description: tool.Description,
-			InputSchema: inputSchema,
-		}, handler)
-
-		log.Printf("Registered cloud tool: %s", namespacedName)
+		registerForwardedTool(server, session, namespaceCloud, pluginName, "Cloud tool call failed", tool)
 	}
 
 	log.Printf("Successfully connected to cloud plugin with %d tools", len(tools.Tools))
 	return session, nil
+}
+
+// registerForwardedTool installs a tool on `server` that proxies calls
+// through to `session` (a plugin/WASM/cloud client session). Tools are
+// namespaced as `<namespace>_<pluginName>_<toolName>` to comply with
+// Claude.ai connector tool name pattern: ^[a-zA-Z0-9_-]{1,64}$.
+//
+// errPrefix is prepended to the error text when the downstream session
+// returns an error (e.g. "Cloud tool call failed", "Tool call failed").
+func registerForwardedTool(server *mcp.Server, session *mcp.ClientSession, namespace, pluginName, errPrefix string, tool *mcp.Tool) {
+	inputSchema, _ := tool.InputSchema.(*jsonschema.Schema)
+	if inputSchema == nil || inputSchema.Type == "" {
+		inputSchema = &jsonschema.Schema{Type: "object", Properties: map[string]*jsonschema.Schema{}}
+	}
+	toolSession := session
+	toolName := tool.Name
+	handler := func(ctx context.Context, _ *mcp.CallToolRequest, input map[string]any) (*mcp.CallToolResult, any, error) {
+		result, err := toolSession.CallTool(ctx, &mcp.CallToolParams{
+			Name:      toolName,
+			Arguments: input,
+		})
+		if err != nil {
+			return &mcp.CallToolResult{
+				IsError: true,
+				Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("%s: %v", errPrefix, err)}},
+			}, nil, nil
+		}
+		return &mcp.CallToolResult{
+			Meta:    result.Meta,
+			Content: result.Content,
+			IsError: result.IsError,
+		}, nil, nil
+	}
+	namespacedName := fmt.Sprintf("%s_%s_%s", namespace, pluginName, tool.Name)
+	mcp.AddTool[map[string]any, any](server, &mcp.Tool{
+		Name:        namespacedName,
+		Description: tool.Description,
+		InputSchema: inputSchema,
+	}, handler)
+	log.Printf("Registered %s tool: %s", namespace, namespacedName)
 }
 
 // wasmConn implements io.ReadWriteCloser for WASM communication
