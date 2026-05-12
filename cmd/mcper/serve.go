@@ -16,7 +16,7 @@ import (
 
 	"github.com/joshcarp/mcper/pkg/mcper"
 	"github.com/joshcarp/mcper/pkg/wasmhost"
-	"github.com/modelcontextprotocol/go-sdk/jsonschema"
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 )
@@ -326,7 +326,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	defer wasmHost.Close(ctx)
 
 	// Create MCP server
-	mcpServer := mcp.NewServer("mcper", mcper.Version, nil)
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "mcper", Version: mcper.Version}, nil)
 
 	// Register native mcper tools (registry, cache, etc.)
 	registerNativeTools(mcpServer)
@@ -538,10 +538,10 @@ func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Ser
 	}
 
 	// Create MCP client for the WASM module
-	wasmClient := mcp.NewClient("WASM-"+name, "1.0.0", nil)
+	wasmClient := mcp.NewClient(&mcp.Implementation{Name: "WASM-"+name, Version: "1.0.0"}, nil)
 	transport := mcp.NewIOTransport(&wasmConn{read: read, write: write})
 
-	session, err := wasmClient.Connect(ctx, transport)
+	session, err := wasmClient.Connect(ctx, transport, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to WASM module: %w", err)
 	}
@@ -554,7 +554,8 @@ func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Ser
 
 	// Register each tool with the MCP server
 	for _, tool := range tools.Tools {
-		inputSchema := tool.InputSchema
+		inputSchemaAny := tool.InputSchema
+		inputSchema, _ := inputSchemaAny.(*jsonschema.Schema)
 		if inputSchema == nil || inputSchema.Type == "" {
 			inputSchema = &jsonschema.Schema{Type: "object", Properties: map[string]*jsonschema.Schema{}}
 		}
@@ -562,20 +563,20 @@ func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Ser
 		// Create a handler that forwards calls to the WASM module
 		toolSession := session
 		toolName := tool.Name
-		handler := func(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[map[string]any]) (*mcp.CallToolResult, error) {
+		handler := func(ctx context.Context, _ *mcp.CallToolRequest, input map[string]any) (*mcp.CallToolResult, any, error) {
 			callParams := &mcp.CallToolParams{
 				Name:      toolName,
-				Arguments: params.Arguments,
+				Arguments: input,
 			}
 			result, err := toolSession.CallTool(ctx, callParams)
 			if err != nil {
-				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Tool call failed: %v", err)}}}, nil
+				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Tool call failed: %v", err)}}}, nil, nil
 			}
 			return &mcp.CallToolResult{
 				Meta:    result.Meta,
 				Content: result.Content,
 				IsError: result.IsError,
-			}, nil
+			}, nil, nil
 		}
 
 		// Create namespaced tool name based on source:
@@ -588,7 +589,7 @@ func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Ser
 			namespace = "cloud"
 		}
 		namespacedName := fmt.Sprintf("%s_%s_%s", namespace, pluginName, tool.Name)
-		server.AddTool(&mcp.Tool{
+		mcp.AddTool[map[string]any, any](server, &mcp.Tool{
 			Name:        namespacedName,
 			Description: tool.Description,
 			InputSchema: inputSchema,
@@ -602,10 +603,10 @@ func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Ser
 
 // loadHTTPPlugin connects to an HTTP MCP server and forwards its tools
 func loadHTTPPlugin(ctx context.Context, server *mcp.Server, name string, plugin mcper.PluginConfig) (*mcp.ClientSession, error) {
-	httpClient := mcp.NewClient("HTTP-"+name, "1.0.0", nil)
-	transport := mcp.NewStreamableClientTransport(plugin.Source, nil)
+	httpClient := mcp.NewClient(&mcp.Implementation{Name: "HTTP-"+name, Version: "1.0.0"}, nil)
+	transport := &mcp.StreamableClientTransport{Endpoint: plugin.Source}
 
-	session, err := httpClient.Connect(ctx, transport)
+	session, err := httpClient.Connect(ctx, transport, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to HTTP plugin: %w", err)
 	}
@@ -621,33 +622,34 @@ func loadHTTPPlugin(ctx context.Context, server *mcp.Server, name string, plugin
 
 	// Register each tool with the MCP server
 	for _, tool := range tools.Tools {
-		inputSchema := tool.InputSchema
+		inputSchemaAny := tool.InputSchema
+		inputSchema, _ := inputSchemaAny.(*jsonschema.Schema)
 		if inputSchema == nil || inputSchema.Type == "" {
 			inputSchema = &jsonschema.Schema{Type: "object", Properties: map[string]*jsonschema.Schema{}}
 		}
 
 		toolSession := session
 		toolName := tool.Name
-		handler := func(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[map[string]any]) (*mcp.CallToolResult, error) {
+		handler := func(ctx context.Context, _ *mcp.CallToolRequest, input map[string]any) (*mcp.CallToolResult, any, error) {
 			callParams := &mcp.CallToolParams{
 				Name:      toolName,
-				Arguments: params.Arguments,
+				Arguments: input,
 			}
 			result, err := toolSession.CallTool(ctx, callParams)
 			if err != nil {
-				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Tool call failed: %v", err)}}}, nil
+				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Tool call failed: %v", err)}}}, nil, nil
 			}
 			return &mcp.CallToolResult{
 				Meta:    result.Meta,
 				Content: result.Content,
 				IsError: result.IsError,
-			}, nil
+			}, nil, nil
 		}
 
 		// Create namespaced tool name: http_<pluginName>_<toolName>
 		// Uses underscores to comply with Claude.ai's tool name pattern
 		namespacedName := fmt.Sprintf("http_%s_%s", pluginName, tool.Name)
-		server.AddTool(&mcp.Tool{
+		mcp.AddTool[map[string]any, any](server, &mcp.Tool{
 			Name:        namespacedName,
 			Description: tool.Description,
 			InputSchema: inputSchema,
@@ -681,12 +683,13 @@ func loadCloudPlugin(ctx context.Context, server *mcp.Server, name string, plugi
 	}
 
 	// Create MCP client for the cloud server
-	cloudClient := mcp.NewClient("Cloud-"+name, "1.0.0", nil)
-	transport := mcp.NewStreamableClientTransport(mcpEndpointURL, &mcp.StreamableClientTransportOptions{
+	cloudClient := mcp.NewClient(&mcp.Implementation{Name: "Cloud-"+name, Version: "1.0.0"}, nil)
+	transport := &mcp.StreamableClientTransport{
+		Endpoint:   mcpEndpointURL,
 		HTTPClient: httpClient,
-	})
+	}
 
-	session, err := cloudClient.Connect(ctx, transport)
+	session, err := cloudClient.Connect(ctx, transport, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to cloud MCP server: %w", err)
 	}
@@ -707,36 +710,37 @@ func loadCloudPlugin(ctx context.Context, server *mcp.Server, name string, plugi
 
 	// Register each tool with the MCP server
 	for _, tool := range tools.Tools {
-		inputSchema := tool.InputSchema
+		inputSchemaAny := tool.InputSchema
+		inputSchema, _ := inputSchemaAny.(*jsonschema.Schema)
 		if inputSchema == nil || inputSchema.Type == "" {
 			inputSchema = &jsonschema.Schema{Type: "object", Properties: map[string]*jsonschema.Schema{}}
 		}
 
 		toolSession := session
 		toolName := tool.Name
-		handler := func(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[map[string]any]) (*mcp.CallToolResult, error) {
+		handler := func(ctx context.Context, _ *mcp.CallToolRequest, input map[string]any) (*mcp.CallToolResult, any, error) {
 			callParams := &mcp.CallToolParams{
 				Name:      toolName,
-				Arguments: params.Arguments,
+				Arguments: input,
 			}
 			result, err := toolSession.CallTool(ctx, callParams)
 			if err != nil {
 				return &mcp.CallToolResult{
 					IsError: true,
 					Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Cloud tool call failed: %v", err)}},
-				}, nil
+				}, nil, nil
 			}
 			return &mcp.CallToolResult{
 				Meta:    result.Meta,
 				Content: result.Content,
 				IsError: result.IsError,
-			}, nil
+			}, nil, nil
 		}
 
 		// Cloud tools use cloud_<pluginName>_<toolName> namespace
 		// Uses underscores to comply with Claude.ai's tool name pattern
 		namespacedName := fmt.Sprintf("cloud_%s_%s", pluginName, tool.Name)
-		server.AddTool(&mcp.Tool{
+		mcp.AddTool[map[string]any, any](server, &mcp.Tool{
 			Name:        namespacedName,
 			Description: tool.Description,
 			InputSchema: inputSchema,

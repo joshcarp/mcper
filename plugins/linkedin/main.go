@@ -58,7 +58,7 @@ func NewLinkedInClient(accessToken string) *LinkedInClient {
 
 func main() {
 	// Create a new MCP server
-	server := mcp.NewServer("LinkedIn MCP Server", "1.0.0", nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: "LinkedIn MCP Server", Version: "1.0.0"}, nil)
 
 	// Add LinkedIn search tool
 	mcp.AddTool(server, &mcp.Tool{
@@ -87,7 +87,7 @@ func main() {
 	// Start the server
 	log.Println("Starting LinkedIn MCP Server...")
 	ctx := context.Background()
-	if err := server.Run(ctx, mcp.NewStdioTransport()); err != nil {
+	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil {
 		log.Fatalf("Failed to run MCP server: %v", err)
 	}
 }
@@ -125,15 +125,15 @@ type LinkedInConnectionsParams struct {
 }
 
 // linkedInSearchPeopleHandler handles LinkedIn people search
-func linkedInSearchPeopleHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[LinkedInSearchParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func linkedInSearchPeopleHandler(ctx context.Context, req *mcp.CallToolRequest, input LinkedInSearchParams) (*mcp.CallToolResult, any, error) {
+	args := input
 
 	// Access token is now optional - will use placeholder if not provided
 	if args.Query == "" {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: "Search query is required"}},
-		}, nil
+		}, nil, nil
 	}
 
 	client := NewLinkedInClient(args.AccessToken)
@@ -143,86 +143,86 @@ func linkedInSearchPeopleHandler(ctx context.Context, cc *mcp.ServerSession, par
 
 	result, err := client.searchPeople(searchQuery, args.Limit)
 	if err != nil {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("LinkedIn search failed: %v", err)}},
-		}, nil
+		}, nil, nil
 	}
 
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: result}},
-	}, nil
+	}, nil, nil
 }
 
 // linkedInGetProfileHandler handles getting LinkedIn profile details
-func linkedInGetProfileHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[LinkedInProfileParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func linkedInGetProfileHandler(ctx context.Context, req *mcp.CallToolRequest, input LinkedInProfileParams) (*mcp.CallToolResult, any, error) {
+	args := input
 
 	if args.ProfileID == "" {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: "Profile ID is required"}},
-		}, nil
+		}, nil, nil
 	}
 
 	client := NewLinkedInClient(args.AccessToken)
 
 	result, err := client.getProfile(args.ProfileID)
 	if err != nil {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Failed to get profile: %v", err)}},
-		}, nil
+		}, nil, nil
 	}
 
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: result}},
-	}, nil
+	}, nil, nil
 }
 
 // linkedInSearchCompaniesHandler handles LinkedIn company search
-func linkedInSearchCompaniesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[LinkedInCompanySearchParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func linkedInSearchCompaniesHandler(ctx context.Context, req *mcp.CallToolRequest, input LinkedInCompanySearchParams) (*mcp.CallToolResult, any, error) {
+	args := input
 
 	if args.Query == "" {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: "Search query is required"}},
-		}, nil
+		}, nil, nil
 	}
 
 	client := NewLinkedInClient(args.AccessToken)
 
 	result, err := client.searchCompanies(args.Query, args.Industry, args.Location, args.Limit)
 	if err != nil {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Company search failed: %v", err)}},
-		}, nil
+		}, nil, nil
 	}
 
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: result}},
-	}, nil
+	}, nil, nil
 }
 
 // linkedInGetConnectionsHandler handles getting user connections
-func linkedInGetConnectionsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[LinkedInConnectionsParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func linkedInGetConnectionsHandler(ctx context.Context, req *mcp.CallToolRequest, input LinkedInConnectionsParams) (*mcp.CallToolResult, any, error) {
+	args := input
 
 	client := NewLinkedInClient(args.AccessToken)
 
 	result, err := client.getConnections(args.Limit)
 	if err != nil {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Failed to get connections: %v", err)}},
-		}, nil
+		}, nil, nil
 	}
 
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: result}},
-	}, nil
+	}, nil, nil
 }
 
 // buildPeopleSearchQuery constructs the search query with filters

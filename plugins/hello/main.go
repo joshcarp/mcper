@@ -22,7 +22,7 @@ import (
 
 func main() {
 	// Create a new MCP server
-	server := mcp.NewServer("Hello World MCP Server", "1.0.0", nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: "Hello World MCP Server", Version: "1.0.0"}, nil)
 
 	// Add the hello world tool
 	mcp.AddTool(server, &mcp.Tool{
@@ -39,7 +39,7 @@ func main() {
 	// Start the server
 	log.Println("Starting Hello World MCP Server...")
 	ctx := context.Background()
-	if err := server.Run(ctx, mcp.NewStdioTransport()); err != nil {
+	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil {
 		log.Fatalf("Failed to run MCP server: %v", err)
 	}
 }
@@ -50,8 +50,8 @@ type HelloParams struct {
 }
 
 // helloHandler handles the hello_world tool calls
-func helloHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[HelloParams]) (*mcp.CallToolResultFor[any], error) {
-	name := params.Arguments.Name
+func helloHandler(ctx context.Context, req *mcp.CallToolRequest, input HelloParams) (*mcp.CallToolResult, any, error) {
+	name := input.Name
 	if name == "" {
 		name = "World"
 	}
@@ -62,9 +62,9 @@ func helloHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallTo
 	message := fmt.Sprintf("Hello, %s! Welcome to the Hello World MCP Server!\n\n%s", name, httpResult)
 	log.Printf("Greeting user: %s", name)
 
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: message}},
-	}, nil
+	}, nil, nil
 }
 
 // testHTTPBin tests HTTP connectivity - tries direct first, then proxy fallback
@@ -152,9 +152,9 @@ type NetworkTestParams struct {
 }
 
 // networkTestHandler demonstrates various networking capabilities
-func networkTestHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[NetworkTestParams]) (*mcp.CallToolResultFor[any], error) {
-	testType := params.Arguments.Type
-	target := params.Arguments.Target
+func networkTestHandler(ctx context.Context, req *mcp.CallToolRequest, input NetworkTestParams) (*mcp.CallToolResult, any, error) {
+	testType := input.Type
+	target := input.Target
 
 	if target == "" {
 		switch testType {
@@ -176,22 +176,22 @@ func networkTestHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 	case "udp":
 		result, err = testUDP(target)
 	default:
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Unknown test type: %s. Supported types: http, tcp, udp", testType)}},
-		}, nil
+		}, nil, nil
 	}
 
 	if err != nil {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("%s test failed: %v", testType, err)}},
-		}, nil
+		}, nil, nil
 	}
 
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: result}},
-	}, nil
+	}, nil, nil
 }
 
 func testHTTP(url string) (string, error) {

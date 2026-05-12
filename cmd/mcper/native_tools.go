@@ -9,14 +9,14 @@ import (
 	"strings"
 
 	"github.com/joshcarp/mcper/pkg/mcper"
-	"github.com/modelcontextprotocol/go-sdk/jsonschema"
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // registerNativeTools adds mcper's own tools to the MCP server
 func registerNativeTools(server *mcp.Server) {
 	// mcper/native/registry_list - List all available plugins in the registry
-	server.AddTool(&mcp.Tool{
+	mcp.AddTool[map[string]any, any](server, &mcp.Tool{
 		Name:        "mcper/native/registry_list",
 		Description: "List all available plugins in the mcper registry. Returns plugin names, descriptions, versions, and required environment variables.",
 		InputSchema: &jsonschema.Schema{
@@ -26,7 +26,7 @@ func registerNativeTools(server *mcp.Server) {
 	}, handleRegistryList)
 
 	// mcper/native/registry_search - Search for plugins
-	server.AddTool(&mcp.Tool{
+	mcp.AddTool[map[string]any, any](server, &mcp.Tool{
 		Name:        "mcper/native/registry_search",
 		Description: "Search for plugins in the mcper registry by name or description.",
 		InputSchema: &jsonschema.Schema{
@@ -42,7 +42,7 @@ func registerNativeTools(server *mcp.Server) {
 	}, handleRegistrySearch)
 
 	// mcper/native/plugin_list - List configured plugins in current project
-	server.AddTool(&mcp.Tool{
+	mcp.AddTool[map[string]any, any](server, &mcp.Tool{
 		Name:        "mcper/native/plugin_list",
 		Description: "List all plugins configured in the current project's .mcper/start.sh file.",
 		InputSchema: &jsonschema.Schema{
@@ -52,7 +52,7 @@ func registerNativeTools(server *mcp.Server) {
 	}, handlePluginList)
 
 	// mcper/native/cache_list - List cached plugins
-	server.AddTool(&mcp.Tool{
+	mcp.AddTool[map[string]any, any](server, &mcp.Tool{
 		Name:        "mcper/native/cache_list",
 		Description: "List all cached WASM plugins with their metadata including size, hash, and download date.",
 		InputSchema: &jsonschema.Schema{
@@ -62,7 +62,7 @@ func registerNativeTools(server *mcp.Server) {
 	}, handleCacheList)
 
 	// mcper/native/version - Get mcper version info
-	server.AddTool(&mcp.Tool{
+	mcp.AddTool[map[string]any, any](server, &mcp.Tool{
 		Name:        "mcper/native/version",
 		Description: "Get the current mcper version and installation information.",
 		InputSchema: &jsonschema.Schema{
@@ -72,7 +72,7 @@ func registerNativeTools(server *mcp.Server) {
 	}, handleVersion)
 
 	// mcper/native/plugin_info - Get detailed info about a specific plugin
-	server.AddTool(&mcp.Tool{
+	mcp.AddTool[map[string]any, any](server, &mcp.Tool{
 		Name:        "mcper/native/plugin_info",
 		Description: "Get detailed information about a specific plugin from the registry.",
 		InputSchema: &jsonschema.Schema{
@@ -88,14 +88,14 @@ func registerNativeTools(server *mcp.Server) {
 	}, handlePluginInfo)
 }
 
-func handleRegistryList(ctx context.Context, ss *mcp.ServerSession, params *mcp.CallToolParamsFor[map[string]any]) (*mcp.CallToolResult, error) {
+func handleRegistryList(ctx context.Context, _ *mcp.CallToolRequest, input map[string]any) (*mcp.CallToolResult, any, error) {
 	manifest, err := fetchPluginsManifest()
 	if err != nil {
-		return errorResult(fmt.Sprintf("Failed to fetch registry: %v", err)), nil
+		return errorResult(fmt.Sprintf("Failed to fetch registry: %v", err)), nil, nil
 	}
 
 	if len(manifest.Plugins) == 0 {
-		return textResult("No plugins available in the registry."), nil
+		return textResult("No plugins available in the registry."), nil, nil
 	}
 
 	var sb strings.Builder
@@ -112,18 +112,18 @@ func handleRegistryList(ctx context.Context, ss *mcp.ServerSession, params *mcp.
 		sb.WriteString(fmt.Sprintf("**Install:** `mcper add %s`\n\n", p.Name))
 	}
 
-	return textResult(sb.String()), nil
+	return textResult(sb.String()), nil, nil
 }
 
-func handleRegistrySearch(ctx context.Context, ss *mcp.ServerSession, params *mcp.CallToolParamsFor[map[string]any]) (*mcp.CallToolResult, error) {
-	query, ok := params.Arguments["query"].(string)
+func handleRegistrySearch(ctx context.Context, _ *mcp.CallToolRequest, input map[string]any) (*mcp.CallToolResult, any, error) {
+	query, ok := input["query"].(string)
 	if !ok || query == "" {
-		return errorResult("Missing required parameter: query"), nil
+		return errorResult("Missing required parameter: query"), nil, nil
 	}
 
 	manifest, err := fetchPluginsManifest()
 	if err != nil {
-		return errorResult(fmt.Sprintf("Failed to fetch registry: %v", err)), nil
+		return errorResult(fmt.Sprintf("Failed to fetch registry: %v", err)), nil, nil
 	}
 
 	query = strings.ToLower(query)
@@ -137,7 +137,7 @@ func handleRegistrySearch(ctx context.Context, ss *mcp.ServerSession, params *mc
 	}
 
 	if len(matches) == 0 {
-		return textResult(fmt.Sprintf("No plugins found matching '%s'.", query)), nil
+		return textResult(fmt.Sprintf("No plugins found matching '%s'.", query)), nil, nil
 	}
 
 	var sb strings.Builder
@@ -152,28 +152,28 @@ func handleRegistrySearch(ctx context.Context, ss *mcp.ServerSession, params *mc
 		sb.WriteString(fmt.Sprintf("**Install:** `mcper add %s`\n\n", p.Name))
 	}
 
-	return textResult(sb.String()), nil
+	return textResult(sb.String()), nil, nil
 }
 
-func handlePluginList(ctx context.Context, ss *mcp.ServerSession, params *mcp.CallToolParamsFor[map[string]any]) (*mcp.CallToolResult, error) {
+func handlePluginList(ctx context.Context, _ *mcp.CallToolRequest, input map[string]any) (*mcp.CallToolResult, any, error) {
 	// Find .mcper directory
 	cwd, err := os.Getwd()
 	if err != nil {
-		return errorResult(fmt.Sprintf("Failed to get working directory: %v", err)), nil
+		return errorResult(fmt.Sprintf("Failed to get working directory: %v", err)), nil, nil
 	}
 
 	startScript := filepath.Join(cwd, ".mcper", "start.sh")
 	if _, err := os.Stat(startScript); os.IsNotExist(err) {
-		return textResult("No .mcper/start.sh found in current directory. Run 'mcper init' to initialize."), nil
+		return textResult("No .mcper/start.sh found in current directory. Run 'mcper init' to initialize."), nil, nil
 	}
 
 	config, err := mcper.ParseStartScript(startScript)
 	if err != nil {
-		return errorResult(fmt.Sprintf("Failed to parse start script: %v", err)), nil
+		return errorResult(fmt.Sprintf("Failed to parse start script: %v", err)), nil, nil
 	}
 
 	if len(config.Plugins) == 0 {
-		return textResult("No plugins configured.\n\nTo add a plugin: `mcper add <name>`"), nil
+		return textResult("No plugins configured.\n\nTo add a plugin: `mcper add <name>`"), nil, nil
 	}
 
 	var sb strings.Builder
@@ -205,22 +205,22 @@ func handlePluginList(ctx context.Context, ss *mcp.ServerSession, params *mcp.Ca
 		sb.WriteString("\n")
 	}
 
-	return textResult(sb.String()), nil
+	return textResult(sb.String()), nil, nil
 }
 
-func handleCacheList(ctx context.Context, ss *mcp.ServerSession, params *mcp.CallToolParamsFor[map[string]any]) (*mcp.CallToolResult, error) {
+func handleCacheList(ctx context.Context, _ *mcp.CallToolRequest, input map[string]any) (*mcp.CallToolResult, any, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return errorResult(fmt.Sprintf("Failed to get home directory: %v", err)), nil
+		return errorResult(fmt.Sprintf("Failed to get home directory: %v", err)), nil, nil
 	}
 
 	cacheDir := filepath.Join(homeDir, ".mcper", "cache", "plugins")
 	entries, err := os.ReadDir(cacheDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return textResult("No plugins cached yet."), nil
+			return textResult("No plugins cached yet."), nil, nil
 		}
-		return errorResult(fmt.Sprintf("Failed to read cache directory: %v", err)), nil
+		return errorResult(fmt.Sprintf("Failed to read cache directory: %v", err)), nil, nil
 	}
 
 	var plugins []struct {
@@ -269,7 +269,7 @@ func handleCacheList(ctx context.Context, ss *mcp.ServerSession, params *mcp.Cal
 	}
 
 	if len(plugins) == 0 {
-		return textResult("No plugins cached yet."), nil
+		return textResult("No plugins cached yet."), nil, nil
 	}
 
 	var sb strings.Builder
@@ -288,10 +288,10 @@ func handleCacheList(ctx context.Context, ss *mcp.ServerSession, params *mcp.Cal
 		sb.WriteString("\n")
 	}
 
-	return textResult(sb.String()), nil
+	return textResult(sb.String()), nil, nil
 }
 
-func handleVersion(ctx context.Context, ss *mcp.ServerSession, params *mcp.CallToolParamsFor[map[string]any]) (*mcp.CallToolResult, error) {
+func handleVersion(ctx context.Context, _ *mcp.CallToolRequest, input map[string]any) (*mcp.CallToolResult, any, error) {
 	homeDir, _ := os.UserHomeDir()
 	binPath := filepath.Join(homeDir, ".mcper", "bin", "mcper")
 
@@ -302,18 +302,18 @@ func handleVersion(ctx context.Context, ss *mcp.ServerSession, params *mcp.CallT
 	sb.WriteString(fmt.Sprintf("**Registry:** %s/plugins.json\n", mcper.GCSBaseURL))
 	sb.WriteString(fmt.Sprintf("**Cache:** %s/.mcper/cache/\n", homeDir))
 
-	return textResult(sb.String()), nil
+	return textResult(sb.String()), nil, nil
 }
 
-func handlePluginInfo(ctx context.Context, ss *mcp.ServerSession, params *mcp.CallToolParamsFor[map[string]any]) (*mcp.CallToolResult, error) {
-	name, ok := params.Arguments["name"].(string)
+func handlePluginInfo(ctx context.Context, _ *mcp.CallToolRequest, input map[string]any) (*mcp.CallToolResult, any, error) {
+	name, ok := input["name"].(string)
 	if !ok || name == "" {
-		return errorResult("Missing required parameter: name"), nil
+		return errorResult("Missing required parameter: name"), nil, nil
 	}
 
 	manifest, err := fetchPluginsManifest()
 	if err != nil {
-		return errorResult(fmt.Sprintf("Failed to fetch registry: %v", err)), nil
+		return errorResult(fmt.Sprintf("Failed to fetch registry: %v", err)), nil, nil
 	}
 
 	for _, p := range manifest.Plugins {
@@ -342,11 +342,11 @@ func handlePluginInfo(ctx context.Context, ss *mcp.ServerSession, params *mcp.Ca
 			resolvedURL := mcper.PluginURL(p.Name, p.Version)
 			sb.WriteString(fmt.Sprintf("\n**Download URL:** %s\n", resolvedURL))
 
-			return textResult(sb.String()), nil
+			return textResult(sb.String()), nil, nil
 		}
 	}
 
-	return textResult(fmt.Sprintf("Plugin '%s' not found in registry.\n\nRun `mcper/native/registry_list` to see available plugins.", name)), nil
+	return textResult(fmt.Sprintf("Plugin '%s' not found in registry.\n\nRun `mcper/native/registry_list` to see available plugins.", name)), nil, nil
 }
 
 // Helper functions for creating tool results

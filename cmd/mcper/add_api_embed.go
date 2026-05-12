@@ -107,24 +107,24 @@ func main() {
 	}
 }
 
-func httpRequestHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[HTTPRequestParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func httpRequestHandler(ctx context.Context, req *mcp.CallToolRequest, input HTTPRequestParams) (*mcp.CallToolResult, any, error) {
+	args := input
 
 	method := strings.ToUpper(args.Method)
 	switch method {
 	case "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD":
 	default:
-		return errResult("Invalid method: %s", method), nil
+		return errResult("Invalid method: %s", method), nil, nil
 	}
 
 	if args.Path == "" {
-		return errResult("Path is required"), nil
+		return errResult("Path is required"), nil, nil
 	}
 	if !strings.HasPrefix(args.Path, "/") {
 		args.Path = "/" + args.Path
 	}
 	if !isPathAllowed(args.Path) {
-		return errResult("Path %q not allowed", args.Path), nil
+		return errResult("Path %q not allowed", args.Path), nil, nil
 	}
 
 	fullURL := strings.TrimRight(baseURL, "/") + args.Path
@@ -143,7 +143,7 @@ func httpRequestHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 
 	req, err := http.NewRequestWithContext(ctx, method, fullURL, bodyReader)
 	if err != nil {
-		return errResult("Failed to create request: %v", err), nil
+		return errResult("Failed to create request: %v", err), nil, nil
 	}
 
 	req.Header.Set("Accept", "application/json")
@@ -163,13 +163,13 @@ func httpRequestHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 
 	resp, err := newHTTP11Client(60 * time.Second).Do(req)
 	if err != nil {
-		return errResult("Request failed: %v", err), nil
+		return errResult("Request failed: %v", err), nil, nil
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return errResult("Failed to read response: %v", err), nil
+		return errResult("Failed to read response: %v", err), nil, nil
 	}
 
 	respHeaders := make(map[string]string)
@@ -183,9 +183,9 @@ func httpRequestHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 		"body":    string(body),
 	}, "", "  ")
 
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: string(resultJSON)}},
-	}, nil
+	}, nil, nil
 }
 
 func fetchAndLogOpenAPI() {
@@ -206,8 +206,8 @@ func fetchAndLogOpenAPI() {
 	os.WriteFile(fmt.Sprintf("/tmp/openapi-%s.json", pluginName), body, 0644)
 }
 
-func errResult(format string, args ...any) *mcp.CallToolResultFor[any] {
-	return &mcp.CallToolResultFor[any]{
+func errResult(format string, args ...any) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
 		IsError: true,
 		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf(format, args...)}},
 	}

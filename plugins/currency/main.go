@@ -45,7 +45,7 @@ func NewCurrencyClient() *CurrencyClient {
 }
 
 func main() {
-	server := mcp.NewServer("Currency MCP Server", "1.0.0", nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: "Currency MCP Server", Version: "1.0.0"}, nil)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "currency_convert",
@@ -69,7 +69,7 @@ func main() {
 
 	log.Println("Starting Currency MCP Server...")
 	ctx := context.Background()
-	if err := server.Run(ctx, mcp.NewStdioTransport()); err != nil {
+	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil {
 		log.Fatalf("Failed to run MCP server: %v", err)
 	}
 }
@@ -100,15 +100,15 @@ type ConversionResponse struct {
 	Rates  map[string]float64 `json:"rates"`
 }
 
-func convertHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ConvertParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func convertHandler(ctx context.Context, req *mcp.CallToolRequest, input ConvertParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewCurrencyClient()
 
 	if args.Amount <= 0 {
-		return errorResult("amount must be positive"), nil
+		return errorResult("amount must be positive"), nil, nil
 	}
 	if args.From == "" || args.To == "" {
-		return errorResult("from and to currency codes are required"), nil
+		return errorResult("from and to currency codes are required"), nil, nil
 	}
 
 	from := strings.ToUpper(args.From)
@@ -118,12 +118,12 @@ func convertHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 
 	resp, err := client.makeRequest("GET", endpoint)
 	if err != nil {
-		return errorResult("Failed to fetch exchange rate: " + err.Error()), nil
+		return errorResult("Failed to fetch exchange rate: " + err.Error()), nil, nil
 	}
 
 	var data ConversionResponse
 	if err := json.Unmarshal(resp, &data); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	converted := data.Rates[to]
@@ -135,15 +135,15 @@ func convertHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 	output.WriteString(fmt.Sprintf("Exchange Rate: 1 %s = %.6f %s\n", from, rate, to))
 	output.WriteString(fmt.Sprintf("Date: %s\n", data.Date))
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func rateHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[RateParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func rateHandler(ctx context.Context, req *mcp.CallToolRequest, input RateParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewCurrencyClient()
 
 	if args.From == "" || args.To == "" {
-		return errorResult("from and to currency codes are required"), nil
+		return errorResult("from and to currency codes are required"), nil, nil
 	}
 
 	from := strings.ToUpper(args.From)
@@ -153,12 +153,12 @@ func rateHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToo
 
 	resp, err := client.makeRequest("GET", endpoint)
 	if err != nil {
-		return errorResult("Failed to fetch exchange rate: " + err.Error()), nil
+		return errorResult("Failed to fetch exchange rate: " + err.Error()), nil, nil
 	}
 
 	var data ConversionResponse
 	if err := json.Unmarshal(resp, &data); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	rate := data.Rates[to]
@@ -168,22 +168,22 @@ func rateHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToo
 	output.WriteString(fmt.Sprintf("1 %s = %.6f %s\n\n", from, rate, to))
 	output.WriteString(fmt.Sprintf("Date: %s\n", data.Date))
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func listHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ListParams]) (*mcp.CallToolResultFor[any], error) {
+func listHandler(ctx context.Context, req *mcp.CallToolRequest, input ListParams) (*mcp.CallToolResult, any, error) {
 	client := NewCurrencyClient()
 
 	endpoint := fmt.Sprintf("%s/currencies", apiBaseURL)
 
 	resp, err := client.makeRequest("GET", endpoint)
 	if err != nil {
-		return errorResult("Failed to fetch currencies: " + err.Error()), nil
+		return errorResult("Failed to fetch currencies: " + err.Error()), nil, nil
 	}
 
 	var currencies map[string]string
 	if err := json.Unmarshal(resp, &currencies); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -193,18 +193,18 @@ func listHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToo
 		output.WriteString(fmt.Sprintf("%s - %s\n", code, name))
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func historicalHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[HistoricalParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func historicalHandler(ctx context.Context, req *mcp.CallToolRequest, input HistoricalParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewCurrencyClient()
 
 	if args.Date == "" {
-		return errorResult("date is required (YYYY-MM-DD format)"), nil
+		return errorResult("date is required (YYYY-MM-DD format)"), nil, nil
 	}
 	if args.From == "" || args.To == "" {
-		return errorResult("from and to currency codes are required"), nil
+		return errorResult("from and to currency codes are required"), nil, nil
 	}
 
 	from := strings.ToUpper(args.From)
@@ -214,12 +214,12 @@ func historicalHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 
 	resp, err := client.makeRequest("GET", endpoint)
 	if err != nil {
-		return errorResult("Failed to fetch historical rate: " + err.Error()), nil
+		return errorResult("Failed to fetch historical rate: " + err.Error()), nil, nil
 	}
 
 	var data ConversionResponse
 	if err := json.Unmarshal(resp, &data); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	rate := data.Rates[to]
@@ -229,7 +229,7 @@ func historicalHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 	output.WriteString(fmt.Sprintf("Date: %s\n\n", data.Date))
 	output.WriteString(fmt.Sprintf("1 %s = %.6f %s\n", from, rate, to))
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
 func (c *CurrencyClient) makeRequest(method, endpoint string) ([]byte, error) {
@@ -259,15 +259,15 @@ func (c *CurrencyClient) makeRequest(method, endpoint string) ([]byte, error) {
 	return body, nil
 }
 
-func errorResult(msg string) *mcp.CallToolResultFor[any] {
-	return &mcp.CallToolResultFor[any]{
+func errorResult(msg string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
 		IsError: true,
 		Content: []mcp.Content{&mcp.TextContent{Text: msg}},
 	}
 }
 
-func successResult(msg string) *mcp.CallToolResultFor[any] {
-	return &mcp.CallToolResultFor[any]{
+func successResult(msg string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: msg}},
 	}
 }

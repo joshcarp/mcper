@@ -94,7 +94,7 @@ func getUserIDFromMeta(meta map[string]any) string {
 }
 
 func main() {
-	server := mcp.NewServer("GitHub MCP Server", "1.0.0", nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: "GitHub MCP Server", Version: "1.0.0"}, nil)
 
 	// Repository tools
 	mcp.AddTool(server, &mcp.Tool{
@@ -178,7 +178,7 @@ func main() {
 
 	log.Println("Starting GitHub MCP Server...")
 	ctx := context.Background()
-	if err := server.Run(ctx, mcp.NewStdioTransport()); err != nil {
+	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil {
 		log.Fatalf("Failed to run MCP server: %v", err)
 	}
 }
@@ -275,9 +275,9 @@ type ListCommitsParams struct {
 
 // Handlers
 
-func listReposHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ListReposParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
+func listReposHandler(ctx context.Context, req *mcp.CallToolRequest, input ListReposParams) (*mcp.CallToolResult, any, error) {
+	args := input
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
 
 	var endpoint string
 	if args.Org != "" {
@@ -307,7 +307,7 @@ func listReposHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Ca
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to list repos: " + err.Error()), nil
+		return errorResult("Failed to list repos: " + err.Error()), nil, nil
 	}
 
 	var repos []struct {
@@ -322,7 +322,7 @@ func listReposHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Ca
 	}
 
 	if err := json.Unmarshal(resp, &repos); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -341,22 +341,22 @@ func listReposHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Ca
 		output.WriteString(fmt.Sprintf("   %s\n\n", repo.HTMLURL))
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func getRepoHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetRepoParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
+func getRepoHandler(ctx context.Context, req *mcp.CallToolRequest, input GetRepoParams) (*mcp.CallToolResult, any, error) {
+	args := input
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
 
 	if args.Owner == "" || args.Repo == "" {
-		return errorResult("owner and repo are required"), nil
+		return errorResult("owner and repo are required"), nil, nil
 	}
 
 	endpoint := fmt.Sprintf("%s/repos/%s/%s", client.BaseURL, args.Owner, args.Repo)
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to get repo: " + err.Error()), nil
+		return errorResult("Failed to get repo: " + err.Error()), nil, nil
 	}
 
 	var repo struct {
@@ -379,7 +379,7 @@ func getRepoHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 	}
 
 	if err := json.Unmarshal(resp, &repo); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -401,15 +401,15 @@ func getRepoHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 	}
 	output.WriteString(fmt.Sprintf("\nCreated: %s\nUpdated: %s\n", repo.CreatedAt, repo.UpdatedAt))
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func searchReposHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[SearchReposParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
+func searchReposHandler(ctx context.Context, req *mcp.CallToolRequest, input SearchReposParams) (*mcp.CallToolResult, any, error) {
+	args := input
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
 
 	if args.Query == "" {
-		return errorResult("query is required"), nil
+		return errorResult("query is required"), nil, nil
 	}
 
 	perPage := args.PerPage
@@ -428,7 +428,7 @@ func searchReposHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Search failed: " + err.Error()), nil
+		return errorResult("Search failed: " + err.Error()), nil, nil
 	}
 
 	var result struct {
@@ -443,7 +443,7 @@ func searchReposHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 	}
 
 	if err := json.Unmarshal(resp, &result); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -457,15 +457,15 @@ func searchReposHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 		output.WriteString(fmt.Sprintf("   Language: %s | %s\n\n", repo.Language, repo.HTMLURL))
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func listIssuesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ListIssuesParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
+func listIssuesHandler(ctx context.Context, req *mcp.CallToolRequest, input ListIssuesParams) (*mcp.CallToolResult, any, error) {
+	args := input
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
 
 	if args.Owner == "" || args.Repo == "" {
-		return errorResult("owner and repo are required"), nil
+		return errorResult("owner and repo are required"), nil, nil
 	}
 
 	queryParams := url.Values{}
@@ -488,7 +488,7 @@ func listIssuesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to list issues: " + err.Error()), nil
+		return errorResult("Failed to list issues: " + err.Error()), nil, nil
 	}
 
 	var issues []struct {
@@ -507,7 +507,7 @@ func listIssuesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 	}
 
 	if err := json.Unmarshal(resp, &issues); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -533,22 +533,22 @@ func listIssuesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 		output.WriteString(fmt.Sprintf("   %s\n\n", issue.HTMLURL))
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func getIssueHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetIssueParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
+func getIssueHandler(ctx context.Context, req *mcp.CallToolRequest, input GetIssueParams) (*mcp.CallToolResult, any, error) {
+	args := input
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
 
 	if args.Owner == "" || args.Repo == "" || args.IssueNumber == 0 {
-		return errorResult("owner, repo, and issue_number are required"), nil
+		return errorResult("owner, repo, and issue_number are required"), nil, nil
 	}
 
 	endpoint := fmt.Sprintf("%s/repos/%s/%s/issues/%d", client.BaseURL, args.Owner, args.Repo, args.IssueNumber)
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to get issue: " + err.Error()), nil
+		return errorResult("Failed to get issue: " + err.Error()), nil, nil
 	}
 
 	var issue struct {
@@ -573,7 +573,7 @@ func getIssueHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Cal
 	}
 
 	if err := json.Unmarshal(resp, &issue); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -615,19 +615,19 @@ func getIssueHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Cal
 		output.WriteString("(No description provided)")
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func createIssueHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[CreateIssueParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
+func createIssueHandler(ctx context.Context, req *mcp.CallToolRequest, input CreateIssueParams) (*mcp.CallToolResult, any, error) {
+	args := input
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
 
 	if client.Token == "" {
-		return errorResult("Token required to create issues"), nil
+		return errorResult("Token required to create issues"), nil, nil
 	}
 
 	if args.Owner == "" || args.Repo == "" || args.Title == "" {
-		return errorResult("owner, repo, and title are required"), nil
+		return errorResult("owner, repo, and title are required"), nil, nil
 	}
 
 	payload := map[string]interface{}{
@@ -645,7 +645,7 @@ func createIssueHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 
 	resp, err := client.makeRequest("POST", endpoint, strings.NewReader(string(payloadBytes)))
 	if err != nil {
-		return errorResult("Failed to create issue: " + err.Error()), nil
+		return errorResult("Failed to create issue: " + err.Error()), nil, nil
 	}
 
 	var issue struct {
@@ -654,22 +654,22 @@ func createIssueHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 	}
 
 	if err := json.Unmarshal(resp, &issue); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
-	return successResult(fmt.Sprintf("Issue #%d created successfully!\n%s", issue.Number, issue.HTMLURL)), nil
+	return successResult(fmt.Sprintf("Issue #%d created successfully!\n%s", issue.Number, issue.HTMLURL)), nil, nil
 }
 
-func addIssueCommentHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[AddCommentParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
+func addIssueCommentHandler(ctx context.Context, req *mcp.CallToolRequest, input AddCommentParams) (*mcp.CallToolResult, any, error) {
+	args := input
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
 
 	if client.Token == "" {
-		return errorResult("Token required to add comments"), nil
+		return errorResult("Token required to add comments"), nil, nil
 	}
 
 	if args.Owner == "" || args.Repo == "" || args.IssueNumber == 0 || args.Body == "" {
-		return errorResult("owner, repo, issue_number, and body are required"), nil
+		return errorResult("owner, repo, issue_number, and body are required"), nil, nil
 	}
 
 	payload := map[string]string{"body": args.Body}
@@ -679,7 +679,7 @@ func addIssueCommentHandler(ctx context.Context, cc *mcp.ServerSession, params *
 
 	resp, err := client.makeRequest("POST", endpoint, strings.NewReader(string(payloadBytes)))
 	if err != nil {
-		return errorResult("Failed to add comment: " + err.Error()), nil
+		return errorResult("Failed to add comment: " + err.Error()), nil, nil
 	}
 
 	var comment struct {
@@ -688,18 +688,18 @@ func addIssueCommentHandler(ctx context.Context, cc *mcp.ServerSession, params *
 	}
 
 	if err := json.Unmarshal(resp, &comment); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
-	return successResult(fmt.Sprintf("Comment added successfully!\n%s", comment.HTMLURL)), nil
+	return successResult(fmt.Sprintf("Comment added successfully!\n%s", comment.HTMLURL)), nil, nil
 }
 
-func listPRsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ListPRsParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
+func listPRsHandler(ctx context.Context, req *mcp.CallToolRequest, input ListPRsParams) (*mcp.CallToolResult, any, error) {
+	args := input
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
 
 	if args.Owner == "" || args.Repo == "" {
-		return errorResult("owner and repo are required"), nil
+		return errorResult("owner and repo are required"), nil, nil
 	}
 
 	queryParams := url.Values{}
@@ -719,7 +719,7 @@ func listPRsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to list PRs: " + err.Error()), nil
+		return errorResult("Failed to list PRs: " + err.Error()), nil, nil
 	}
 
 	var prs []struct {
@@ -741,7 +741,7 @@ func listPRsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 	}
 
 	if err := json.Unmarshal(resp, &prs); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -760,22 +760,22 @@ func listPRsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 		output.WriteString(fmt.Sprintf("   %s\n\n", pr.HTMLURL))
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func getPRHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetPRParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
+func getPRHandler(ctx context.Context, req *mcp.CallToolRequest, input GetPRParams) (*mcp.CallToolResult, any, error) {
+	args := input
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
 
 	if args.Owner == "" || args.Repo == "" || args.PRNumber == 0 {
-		return errorResult("owner, repo, and pr_number are required"), nil
+		return errorResult("owner, repo, and pr_number are required"), nil, nil
 	}
 
 	endpoint := fmt.Sprintf("%s/repos/%s/%s/pulls/%d", client.BaseURL, args.Owner, args.Repo, args.PRNumber)
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to get PR: " + err.Error()), nil
+		return errorResult("Failed to get PR: " + err.Error()), nil, nil
 	}
 
 	var pr struct {
@@ -806,7 +806,7 @@ func getPRHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallTo
 	}
 
 	if err := json.Unmarshal(resp, &pr); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -846,40 +846,40 @@ func getPRHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallTo
 		output.WriteString("(No description provided)")
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func getPRDiffHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetPRParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
+func getPRDiffHandler(ctx context.Context, req *mcp.CallToolRequest, input GetPRParams) (*mcp.CallToolResult, any, error) {
+	args := input
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
 
 	if args.Owner == "" || args.Repo == "" || args.PRNumber == 0 {
-		return errorResult("owner, repo, and pr_number are required"), nil
+		return errorResult("owner, repo, and pr_number are required"), nil, nil
 	}
 
 	endpoint := fmt.Sprintf("%s/repos/%s/%s/pulls/%d", client.BaseURL, args.Owner, args.Repo, args.PRNumber)
 
 	resp, err := client.makeRequestWithAccept("GET", endpoint, nil, "application/vnd.github.v3.diff")
 	if err != nil {
-		return errorResult("Failed to get PR diff: " + err.Error()), nil
+		return errorResult("Failed to get PR diff: " + err.Error()), nil, nil
 	}
 
-	return successResult(string(resp)), nil
+	return successResult(string(resp)), nil, nil
 }
 
-func listPRFilesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetPRParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
+func listPRFilesHandler(ctx context.Context, req *mcp.CallToolRequest, input GetPRParams) (*mcp.CallToolResult, any, error) {
+	args := input
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
 
 	if args.Owner == "" || args.Repo == "" || args.PRNumber == 0 {
-		return errorResult("owner, repo, and pr_number are required"), nil
+		return errorResult("owner, repo, and pr_number are required"), nil, nil
 	}
 
 	endpoint := fmt.Sprintf("%s/repos/%s/%s/pulls/%d/files", client.BaseURL, args.Owner, args.Repo, args.PRNumber)
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to list PR files: " + err.Error()), nil
+		return errorResult("Failed to list PR files: " + err.Error()), nil, nil
 	}
 
 	var files []struct {
@@ -891,7 +891,7 @@ func listPRFilesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 	}
 
 	if err := json.Unmarshal(resp, &files); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -910,15 +910,15 @@ func listPRFilesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 		output.WriteString(fmt.Sprintf("[%s] %s (+%d -%d)\n", statusIcon, f.Filename, f.Additions, f.Deletions))
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func getFileHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetFileParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
+func getFileHandler(ctx context.Context, req *mcp.CallToolRequest, input GetFileParams) (*mcp.CallToolResult, any, error) {
+	args := input
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
 
 	if args.Owner == "" || args.Repo == "" || args.Path == "" {
-		return errorResult("owner, repo, and path are required"), nil
+		return errorResult("owner, repo, and path are required"), nil, nil
 	}
 
 	endpoint := fmt.Sprintf("%s/repos/%s/%s/contents/%s", client.BaseURL, args.Owner, args.Repo, args.Path)
@@ -928,7 +928,7 @@ func getFileHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to get file: " + err.Error()), nil
+		return errorResult("Failed to get file: " + err.Error()), nil, nil
 	}
 
 	var file struct {
@@ -942,18 +942,18 @@ func getFileHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 	}
 
 	if err := json.Unmarshal(resp, &file); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	if file.Type != "file" {
-		return errorResult("Path is a directory, not a file"), nil
+		return errorResult("Path is a directory, not a file"), nil, nil
 	}
 
 	var content string
 	if file.Encoding == "base64" {
 		decoded, err := decodeBase64(file.Content)
 		if err != nil {
-			return errorResult("Failed to decode file content: " + err.Error()), nil
+			return errorResult("Failed to decode file content: " + err.Error()), nil, nil
 		}
 		content = decoded
 	} else {
@@ -967,15 +967,15 @@ func getFileHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 	output.WriteString("--- Content ---\n")
 	output.WriteString(content)
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func searchCodeHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[SearchCodeParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
+func searchCodeHandler(ctx context.Context, req *mcp.CallToolRequest, input SearchCodeParams) (*mcp.CallToolResult, any, error) {
+	args := input
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
 
 	if args.Query == "" {
-		return errorResult("query is required (e.g., 'addClass repo:jquery/jquery')"), nil
+		return errorResult("query is required (e.g., 'addClass repo:jquery/jquery')"), nil, nil
 	}
 
 	perPage := args.PerPage
@@ -991,7 +991,7 @@ func searchCodeHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Search failed: " + err.Error()), nil
+		return errorResult("Search failed: " + err.Error()), nil, nil
 	}
 
 	var result struct {
@@ -1007,7 +1007,7 @@ func searchCodeHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 	}
 
 	if err := json.Unmarshal(resp, &result); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -1019,22 +1019,22 @@ func searchCodeHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 		output.WriteString(fmt.Sprintf("   %s\n\n", item.HTMLURL))
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func getUserHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetUserParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
+func getUserHandler(ctx context.Context, req *mcp.CallToolRequest, input GetUserParams) (*mcp.CallToolResult, any, error) {
+	args := input
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
 
 	if args.Username == "" {
-		return errorResult("username is required"), nil
+		return errorResult("username is required"), nil, nil
 	}
 
 	endpoint := fmt.Sprintf("%s/users/%s", client.BaseURL, args.Username)
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to get user: " + err.Error()), nil
+		return errorResult("Failed to get user: " + err.Error()), nil, nil
 	}
 
 	var user struct {
@@ -1053,7 +1053,7 @@ func getUserHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 	}
 
 	if err := json.Unmarshal(resp, &user); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -1081,15 +1081,15 @@ func getUserHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 	output.WriteString(fmt.Sprintf("Member since: %s\n", user.CreatedAt))
 	output.WriteString(fmt.Sprintf("URL: %s\n", user.HTMLURL))
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func listCommitsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ListCommitsParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(params.Meta))
+func listCommitsHandler(ctx context.Context, req *mcp.CallToolRequest, input ListCommitsParams) (*mcp.CallToolResult, any, error) {
+	args := input
+	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
 
 	if args.Owner == "" || args.Repo == "" {
-		return errorResult("owner and repo are required"), nil
+		return errorResult("owner and repo are required"), nil, nil
 	}
 
 	queryParams := url.Values{}
@@ -1112,7 +1112,7 @@ func listCommitsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to list commits: " + err.Error()), nil
+		return errorResult("Failed to list commits: " + err.Error()), nil, nil
 	}
 
 	var commits []struct {
@@ -1128,7 +1128,7 @@ func listCommitsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 	}
 
 	if err := json.Unmarshal(resp, &commits); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -1141,7 +1141,7 @@ func listCommitsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 		output.WriteString(fmt.Sprintf("       By %s on %s\n\n", c.Commit.Author.Name, c.Commit.Author.Date))
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
 // Helper functions
@@ -1191,15 +1191,15 @@ func (c *GitHubClient) makeRequestWithAccept(method, endpoint string, body io.Re
 	return respBody, nil
 }
 
-func errorResult(msg string) *mcp.CallToolResultFor[any] {
-	return &mcp.CallToolResultFor[any]{
+func errorResult(msg string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
 		IsError: true,
 		Content: []mcp.Content{&mcp.TextContent{Text: msg}},
 	}
 }
 
-func successResult(msg string) *mcp.CallToolResultFor[any] {
-	return &mcp.CallToolResultFor[any]{
+func successResult(msg string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: msg}},
 	}
 }

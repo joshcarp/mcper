@@ -54,7 +54,7 @@ func NewAzureDevOpsClient() *AzureDevOpsClient {
 }
 
 func main() {
-	server := mcp.NewServer("Azure DevOps MCP Server", "1.0.0", nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: "Azure DevOps MCP Server", Version: "1.0.0"}, nil)
 
 	// Project tools
 	mcp.AddTool(server, &mcp.Tool{
@@ -185,7 +185,7 @@ func main() {
 
 	log.Println("Starting Azure DevOps MCP Server...")
 	ctx := context.Background()
-	if err := server.Run(ctx, mcp.NewStdioTransport()); err != nil {
+	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil {
 		log.Fatalf("Failed to run MCP server: %v", err)
 	}
 }
@@ -349,18 +349,18 @@ type GetBuildParams struct {
 
 // Handlers
 
-func listProjectsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[EmptyParams]) (*mcp.CallToolResultFor[any], error) {
+func listProjectsHandler(ctx context.Context, req *mcp.CallToolRequest, input EmptyParams) (*mcp.CallToolResult, any, error) {
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	endpoint := client.baseURL() + "/_apis/projects?api-version=" + azureDevOpsAPIVersion
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to list projects: " + err.Error()), nil
+		return errorResult("Failed to list projects: " + err.Error()), nil, nil
 	}
 
 	var result struct {
@@ -375,7 +375,7 @@ func listProjectsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp
 	}
 
 	if err := json.Unmarshal(resp, &result); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -389,26 +389,26 @@ func listProjectsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp
 		output.WriteString(fmt.Sprintf("   State: %s\n\n", project.State))
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func getProjectHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ProjectParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func getProjectHandler(ctx context.Context, req *mcp.CallToolRequest, input ProjectParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.Project == "" {
-		return errorResult("project is required"), nil
+		return errorResult("project is required"), nil, nil
 	}
 
 	endpoint := fmt.Sprintf("%s/_apis/projects/%s?api-version=%s", client.baseURL(), url.PathEscape(args.Project), azureDevOpsAPIVersion)
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to get project: " + err.Error()), nil
+		return errorResult("Failed to get project: " + err.Error()), nil, nil
 	}
 
 	var project struct {
@@ -421,7 +421,7 @@ func getProjectHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 	}
 
 	if err := json.Unmarshal(resp, &project); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -433,19 +433,19 @@ func getProjectHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 	output.WriteString(fmt.Sprintf("State: %s\n", project.State))
 	output.WriteString(fmt.Sprintf("Visibility: %s\n", project.Visibility))
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func listReposHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ListReposParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func listReposHandler(ctx context.Context, req *mcp.CallToolRequest, input ListReposParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.Project == "" {
-		return errorResult("project is required"), nil
+		return errorResult("project is required"), nil, nil
 	}
 
 	endpoint := fmt.Sprintf("%s/%s/_apis/git/repositories?api-version=%s",
@@ -453,7 +453,7 @@ func listReposHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Ca
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to list repos: " + err.Error()), nil
+		return errorResult("Failed to list repos: " + err.Error()), nil, nil
 	}
 
 	var result struct {
@@ -469,7 +469,7 @@ func listReposHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Ca
 	}
 
 	if err := json.Unmarshal(resp, &result); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -484,19 +484,19 @@ func listReposHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Ca
 		output.WriteString(fmt.Sprintf("   %s\n\n", repo.WebURL))
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func getRepoHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetRepoParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func getRepoHandler(ctx context.Context, req *mcp.CallToolRequest, input GetRepoParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.Project == "" || args.Repository == "" {
-		return errorResult("project and repository are required"), nil
+		return errorResult("project and repository are required"), nil, nil
 	}
 
 	endpoint := fmt.Sprintf("%s/%s/_apis/git/repositories/%s?api-version=%s",
@@ -504,7 +504,7 @@ func getRepoHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to get repo: " + err.Error()), nil
+		return errorResult("Failed to get repo: " + err.Error()), nil, nil
 	}
 
 	var repo struct {
@@ -520,7 +520,7 @@ func getRepoHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 	}
 
 	if err := json.Unmarshal(resp, &repo); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -534,19 +534,19 @@ func getRepoHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 	output.WriteString(fmt.Sprintf("Clone URL: %s\n", repo.RemoteURL))
 	output.WriteString(fmt.Sprintf("Web URL: %s\n", repo.WebURL))
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func listWorkItemsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ListWorkItemsParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func listWorkItemsHandler(ctx context.Context, req *mcp.CallToolRequest, input ListWorkItemsParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.Project == "" {
-		return errorResult("project is required"), nil
+		return errorResult("project is required"), nil, nil
 	}
 
 	// Build WIQL query
@@ -578,7 +578,7 @@ func listWorkItemsHandler(ctx context.Context, cc *mcp.ServerSession, params *mc
 
 	resp, err := client.makeRequest("POST", endpoint, strings.NewReader(string(payloadBytes)))
 	if err != nil {
-		return errorResult("Failed to query work items: " + err.Error()), nil
+		return errorResult("Failed to query work items: " + err.Error()), nil, nil
 	}
 
 	var wiqlResult struct {
@@ -589,11 +589,11 @@ func listWorkItemsHandler(ctx context.Context, cc *mcp.ServerSession, params *mc
 	}
 
 	if err := json.Unmarshal(resp, &wiqlResult); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	if len(wiqlResult.WorkItems) == 0 {
-		return successResult("No work items found."), nil
+		return successResult("No work items found."), nil, nil
 	}
 
 	// Get work item details
@@ -608,7 +608,7 @@ func listWorkItemsHandler(ctx context.Context, cc *mcp.ServerSession, params *mc
 
 	detailsResp, err := client.makeRequest("GET", detailsEndpoint, nil)
 	if err != nil {
-		return errorResult("Failed to get work item details: " + err.Error()), nil
+		return errorResult("Failed to get work item details: " + err.Error()), nil, nil
 	}
 
 	var detailsResult struct {
@@ -629,7 +629,7 @@ func listWorkItemsHandler(ctx context.Context, cc *mcp.ServerSession, params *mc
 	}
 
 	if err := json.Unmarshal(detailsResp, &detailsResult); err != nil {
-		return errorResult("Failed to parse work items: " + err.Error()), nil
+		return errorResult("Failed to parse work items: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -647,19 +647,19 @@ func listWorkItemsHandler(ctx context.Context, cc *mcp.ServerSession, params *mc
 		output.WriteString("\n")
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func getWorkItemHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetWorkItemParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func getWorkItemHandler(ctx context.Context, req *mcp.CallToolRequest, input GetWorkItemParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.ID == 0 {
-		return errorResult("id is required"), nil
+		return errorResult("id is required"), nil, nil
 	}
 
 	endpoint := fmt.Sprintf("%s/_apis/wit/workitems/%d?api-version=%s&$expand=all",
@@ -667,7 +667,7 @@ func getWorkItemHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to get work item: " + err.Error()), nil
+		return errorResult("Failed to get work item: " + err.Error()), nil, nil
 	}
 
 	var wi struct {
@@ -694,7 +694,7 @@ func getWorkItemHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 	}
 
 	if err := json.Unmarshal(resp, &wi); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -720,19 +720,19 @@ func getWorkItemHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 		output.WriteString(stripHTML(wi.Fields.Description))
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func createWorkItemHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[CreateWorkItemParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func createWorkItemHandler(ctx context.Context, req *mcp.CallToolRequest, input CreateWorkItemParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.Project == "" || args.Type == "" || args.Title == "" {
-		return errorResult("project, type, and title are required"), nil
+		return errorResult("project, type, and title are required"), nil, nil
 	}
 
 	endpoint := fmt.Sprintf("%s/%s/_apis/wit/workitems/$%s?api-version=%s",
@@ -791,7 +791,7 @@ func createWorkItemHandler(ctx context.Context, cc *mcp.ServerSession, params *m
 
 	resp, err := client.makeRequestWithContentType("POST", endpoint, strings.NewReader(string(payloadBytes)), "application/json-patch+json")
 	if err != nil {
-		return errorResult("Failed to create work item: " + err.Error()), nil
+		return errorResult("Failed to create work item: " + err.Error()), nil, nil
 	}
 
 	var wi struct {
@@ -803,22 +803,22 @@ func createWorkItemHandler(ctx context.Context, cc *mcp.ServerSession, params *m
 	}
 
 	if err := json.Unmarshal(resp, &wi); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
-	return successResult(fmt.Sprintf("Work item #%d created successfully!\nTitle: %s", wi.ID, wi.Fields.Title)), nil
+	return successResult(fmt.Sprintf("Work item #%d created successfully!\nTitle: %s", wi.ID, wi.Fields.Title)), nil, nil
 }
 
-func updateWorkItemHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[UpdateWorkItemParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func updateWorkItemHandler(ctx context.Context, req *mcp.CallToolRequest, input UpdateWorkItemParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.ID == 0 {
-		return errorResult("id is required"), nil
+		return errorResult("id is required"), nil, nil
 	}
 
 	endpoint := fmt.Sprintf("%s/_apis/wit/workitems/%d?api-version=%s",
@@ -875,14 +875,14 @@ func updateWorkItemHandler(ctx context.Context, cc *mcp.ServerSession, params *m
 	}
 
 	if len(patches) == 0 {
-		return errorResult("At least one field to update is required"), nil
+		return errorResult("At least one field to update is required"), nil, nil
 	}
 
 	payloadBytes, _ := json.Marshal(patches)
 
 	resp, err := client.makeRequestWithContentType("PATCH", endpoint, strings.NewReader(string(payloadBytes)), "application/json-patch+json")
 	if err != nil {
-		return errorResult("Failed to update work item: " + err.Error()), nil
+		return errorResult("Failed to update work item: " + err.Error()), nil, nil
 	}
 
 	var wi struct {
@@ -891,22 +891,22 @@ func updateWorkItemHandler(ctx context.Context, cc *mcp.ServerSession, params *m
 	}
 
 	if err := json.Unmarshal(resp, &wi); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
-	return successResult(fmt.Sprintf("Work item #%d updated successfully (revision %d)", wi.ID, wi.Rev)), nil
+	return successResult(fmt.Sprintf("Work item #%d updated successfully (revision %d)", wi.ID, wi.Rev)), nil, nil
 }
 
-func listPullRequestsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ListPullRequestsParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func listPullRequestsHandler(ctx context.Context, req *mcp.CallToolRequest, input ListPullRequestsParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.Project == "" || args.Repository == "" {
-		return errorResult("project and repository are required"), nil
+		return errorResult("project and repository are required"), nil, nil
 	}
 
 	top := args.Top
@@ -926,7 +926,7 @@ func listPullRequestsHandler(ctx context.Context, cc *mcp.ServerSession, params 
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to list pull requests: " + err.Error()), nil
+		return errorResult("Failed to list pull requests: " + err.Error()), nil, nil
 	}
 
 	var result struct {
@@ -946,7 +946,7 @@ func listPullRequestsHandler(ctx context.Context, cc *mcp.ServerSession, params 
 	}
 
 	if err := json.Unmarshal(resp, &result); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -972,19 +972,19 @@ func listPullRequestsHandler(ctx context.Context, cc *mcp.ServerSession, params 
 		output.WriteString(fmt.Sprintf("   Created: %s\n\n", pr.CreationDate))
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func getPullRequestHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetPullRequestParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func getPullRequestHandler(ctx context.Context, req *mcp.CallToolRequest, input GetPullRequestParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.Project == "" || args.Repository == "" || args.PullRequestID == 0 {
-		return errorResult("project, repository, and pull_request_id are required"), nil
+		return errorResult("project, repository, and pull_request_id are required"), nil, nil
 	}
 
 	endpoint := fmt.Sprintf("%s/%s/_apis/git/repositories/%s/pullrequests/%d?api-version=%s",
@@ -992,7 +992,7 @@ func getPullRequestHandler(ctx context.Context, cc *mcp.ServerSession, params *m
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to get pull request: " + err.Error()), nil
+		return errorResult("Failed to get pull request: " + err.Error()), nil, nil
 	}
 
 	var pr struct {
@@ -1016,7 +1016,7 @@ func getPullRequestHandler(ctx context.Context, cc *mcp.ServerSession, params *m
 	}
 
 	if err := json.Unmarshal(resp, &pr); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -1062,19 +1062,19 @@ func getPullRequestHandler(ctx context.Context, cc *mcp.ServerSession, params *m
 		output.WriteString(pr.Description)
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func createPullRequestHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[CreatePullRequestParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func createPullRequestHandler(ctx context.Context, req *mcp.CallToolRequest, input CreatePullRequestParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.Project == "" || args.Repository == "" || args.SourceBranch == "" || args.TargetBranch == "" || args.Title == "" {
-		return errorResult("project, repository, source_branch, target_branch, and title are required"), nil
+		return errorResult("project, repository, source_branch, target_branch, and title are required"), nil, nil
 	}
 
 	// Ensure branches have refs/heads/ prefix
@@ -1103,7 +1103,7 @@ func createPullRequestHandler(ctx context.Context, cc *mcp.ServerSession, params
 
 	resp, err := client.makeRequest("POST", endpoint, strings.NewReader(string(payloadBytes)))
 	if err != nil {
-		return errorResult("Failed to create pull request: " + err.Error()), nil
+		return errorResult("Failed to create pull request: " + err.Error()), nil, nil
 	}
 
 	var pr struct {
@@ -1112,22 +1112,22 @@ func createPullRequestHandler(ctx context.Context, cc *mcp.ServerSession, params
 	}
 
 	if err := json.Unmarshal(resp, &pr); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
-	return successResult(fmt.Sprintf("Pull request #%d created successfully!\nTitle: %s", pr.PullRequestID, pr.Title)), nil
+	return successResult(fmt.Sprintf("Pull request #%d created successfully!\nTitle: %s", pr.PullRequestID, pr.Title)), nil, nil
 }
 
-func mergePullRequestHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[MergePullRequestParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func mergePullRequestHandler(ctx context.Context, req *mcp.CallToolRequest, input MergePullRequestParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.Project == "" || args.Repository == "" || args.PullRequestID == 0 {
-		return errorResult("project, repository, and pull_request_id are required"), nil
+		return errorResult("project, repository, and pull_request_id are required"), nil, nil
 	}
 
 	// First, get the PR to get the last merge source commit
@@ -1136,7 +1136,7 @@ func mergePullRequestHandler(ctx context.Context, cc *mcp.ServerSession, params 
 
 	getResp, err := client.makeRequest("GET", getEndpoint, nil)
 	if err != nil {
-		return errorResult("Failed to get pull request: " + err.Error()), nil
+		return errorResult("Failed to get pull request: " + err.Error()), nil, nil
 	}
 
 	var existingPR struct {
@@ -1146,7 +1146,7 @@ func mergePullRequestHandler(ctx context.Context, cc *mcp.ServerSession, params 
 	}
 
 	if err := json.Unmarshal(getResp, &existingPR); err != nil {
-		return errorResult("Failed to parse pull request: " + err.Error()), nil
+		return errorResult("Failed to parse pull request: " + err.Error()), nil, nil
 	}
 
 	// Determine merge strategy
@@ -1165,7 +1165,7 @@ func mergePullRequestHandler(ctx context.Context, cc *mcp.ServerSession, params 
 
 	strategyValue, ok := mergeStrategyMap[mergeStrategy]
 	if !ok {
-		return errorResult(fmt.Sprintf("Invalid merge strategy: %s. Use: squash, rebase, rebaseMerge, or noFastForward", mergeStrategy)), nil
+		return errorResult(fmt.Sprintf("Invalid merge strategy: %s. Use: squash, rebase, rebaseMerge, or noFastForward", mergeStrategy)), nil, nil
 	}
 
 	// Complete the PR
@@ -1194,7 +1194,7 @@ func mergePullRequestHandler(ctx context.Context, cc *mcp.ServerSession, params 
 
 	resp, err := client.makeRequest("PATCH", endpoint, strings.NewReader(string(payloadBytes)))
 	if err != nil {
-		return errorResult("Failed to merge pull request: " + err.Error()), nil
+		return errorResult("Failed to merge pull request: " + err.Error()), nil, nil
 	}
 
 	var mergedPR struct {
@@ -1204,22 +1204,22 @@ func mergePullRequestHandler(ctx context.Context, cc *mcp.ServerSession, params 
 	}
 
 	if err := json.Unmarshal(resp, &mergedPR); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
-	return successResult(fmt.Sprintf("Pull request #%d merged successfully!\nStatus: %s\nMerge Status: %s", mergedPR.PullRequestID, mergedPR.Status, mergedPR.MergeStatus)), nil
+	return successResult(fmt.Sprintf("Pull request #%d merged successfully!\nStatus: %s\nMerge Status: %s", mergedPR.PullRequestID, mergedPR.Status, mergedPR.MergeStatus)), nil, nil
 }
 
-func addPRCommentHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[AddPRCommentParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func addPRCommentHandler(ctx context.Context, req *mcp.CallToolRequest, input AddPRCommentParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.Project == "" || args.Repository == "" || args.PullRequestID == 0 || args.Content == "" {
-		return errorResult("project, repository, pull_request_id, and content are required"), nil
+		return errorResult("project, repository, pull_request_id, and content are required"), nil, nil
 	}
 
 	endpoint := fmt.Sprintf("%s/%s/_apis/git/repositories/%s/pullrequests/%d/threads?api-version=%s",
@@ -1274,7 +1274,7 @@ func addPRCommentHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp
 
 	resp, err := client.makeRequest("POST", endpoint, strings.NewReader(string(payloadBytes)))
 	if err != nil {
-		return errorResult("Failed to add comment: " + err.Error()), nil
+		return errorResult("Failed to add comment: " + err.Error()), nil, nil
 	}
 
 	var createdThread struct {
@@ -1285,22 +1285,22 @@ func addPRCommentHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp
 	}
 
 	if err := json.Unmarshal(resp, &createdThread); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
-	return successResult(fmt.Sprintf("Comment added successfully!\nThread ID: %d", createdThread.ID)), nil
+	return successResult(fmt.Sprintf("Comment added successfully!\nThread ID: %d", createdThread.ID)), nil, nil
 }
 
-func listPRCommentsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ListPRCommentsParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func listPRCommentsHandler(ctx context.Context, req *mcp.CallToolRequest, input ListPRCommentsParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.Project == "" || args.Repository == "" || args.PullRequestID == 0 {
-		return errorResult("project, repository, and pull_request_id are required"), nil
+		return errorResult("project, repository, and pull_request_id are required"), nil, nil
 	}
 
 	endpoint := fmt.Sprintf("%s/%s/_apis/git/repositories/%s/pullrequests/%d/threads?api-version=%s",
@@ -1308,7 +1308,7 @@ func listPRCommentsHandler(ctx context.Context, cc *mcp.ServerSession, params *m
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to list comments: " + err.Error()), nil
+		return errorResult("Failed to list comments: " + err.Error()), nil, nil
 	}
 
 	var result struct {
@@ -1333,7 +1333,7 @@ func listPRCommentsHandler(ctx context.Context, cc *mcp.ServerSession, params *m
 	}
 
 	if err := json.Unmarshal(resp, &result); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -1394,19 +1394,19 @@ func listPRCommentsHandler(ctx context.Context, cc *mcp.ServerSession, params *m
 		output.WriteString("No comments found.")
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func listWikisHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ListWikisParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func listWikisHandler(ctx context.Context, req *mcp.CallToolRequest, input ListWikisParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.Project == "" {
-		return errorResult("project is required"), nil
+		return errorResult("project is required"), nil, nil
 	}
 
 	endpoint := fmt.Sprintf("%s/%s/_apis/wiki/wikis?api-version=%s",
@@ -1414,7 +1414,7 @@ func listWikisHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Ca
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to list wikis: " + err.Error()), nil
+		return errorResult("Failed to list wikis: " + err.Error()), nil, nil
 	}
 
 	var result struct {
@@ -1429,7 +1429,7 @@ func listWikisHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Ca
 	}
 
 	if err := json.Unmarshal(resp, &result); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -1449,19 +1449,19 @@ func listWikisHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Ca
 		output.WriteString("\n")
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func getWikiPageHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetWikiPageParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func getWikiPageHandler(ctx context.Context, req *mcp.CallToolRequest, input GetWikiPageParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.Project == "" || args.WikiIdentifier == "" || args.Path == "" {
-		return errorResult("project, wiki_identifier, and path are required"), nil
+		return errorResult("project, wiki_identifier, and path are required"), nil, nil
 	}
 
 	// Ensure path starts with /
@@ -1483,7 +1483,7 @@ func getWikiPageHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to get wiki page: " + err.Error()), nil
+		return errorResult("Failed to get wiki page: " + err.Error()), nil, nil
 	}
 
 	var page struct {
@@ -1498,7 +1498,7 @@ func getWikiPageHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 	}
 
 	if err := json.Unmarshal(resp, &page); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -1522,19 +1522,19 @@ func getWikiPageHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 		output.WriteString("(No content)")
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func createWikiPageHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[CreateWikiPageParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func createWikiPageHandler(ctx context.Context, req *mcp.CallToolRequest, input CreateWikiPageParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.Project == "" || args.WikiIdentifier == "" || args.Path == "" || args.Content == "" {
-		return errorResult("project, wiki_identifier, path, and content are required"), nil
+		return errorResult("project, wiki_identifier, path, and content are required"), nil, nil
 	}
 
 	// Ensure path starts with /
@@ -1557,7 +1557,7 @@ func createWikiPageHandler(ctx context.Context, cc *mcp.ServerSession, params *m
 
 	resp, err := client.makeRequest("PUT", endpoint, strings.NewReader(string(payloadBytes)))
 	if err != nil {
-		return errorResult("Failed to create wiki page: " + err.Error()), nil
+		return errorResult("Failed to create wiki page: " + err.Error()), nil, nil
 	}
 
 	var page struct {
@@ -1566,22 +1566,22 @@ func createWikiPageHandler(ctx context.Context, cc *mcp.ServerSession, params *m
 	}
 
 	if err := json.Unmarshal(resp, &page); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
-	return successResult(fmt.Sprintf("Wiki page created successfully!\nPath: %s\nID: %d", page.Path, page.ID)), nil
+	return successResult(fmt.Sprintf("Wiki page created successfully!\nPath: %s\nID: %d", page.Path, page.ID)), nil, nil
 }
 
-func updateWikiPageHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[UpdateWikiPageParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func updateWikiPageHandler(ctx context.Context, req *mcp.CallToolRequest, input UpdateWikiPageParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.Project == "" || args.WikiIdentifier == "" || args.Path == "" || args.Content == "" {
-		return errorResult("project, wiki_identifier, path, and content are required"), nil
+		return errorResult("project, wiki_identifier, path, and content are required"), nil, nil
 	}
 
 	// Ensure path starts with /
@@ -1602,7 +1602,7 @@ func updateWikiPageHandler(ctx context.Context, cc *mcp.ServerSession, params *m
 
 		_, etagHeader, err := client.makeRequestWithETag("GET", getEndpoint, nil)
 		if err != nil {
-			return errorResult("Failed to get existing page: " + err.Error()), nil
+			return errorResult("Failed to get existing page: " + err.Error()), nil, nil
 		}
 		etag = etagHeader
 	}
@@ -1621,7 +1621,7 @@ func updateWikiPageHandler(ctx context.Context, cc *mcp.ServerSession, params *m
 
 	resp, err := client.makeRequestWithIfMatch("PUT", endpoint, strings.NewReader(string(payloadBytes)), etag)
 	if err != nil {
-		return errorResult("Failed to update wiki page: " + err.Error()), nil
+		return errorResult("Failed to update wiki page: " + err.Error()), nil, nil
 	}
 
 	var page struct {
@@ -1630,22 +1630,22 @@ func updateWikiPageHandler(ctx context.Context, cc *mcp.ServerSession, params *m
 	}
 
 	if err := json.Unmarshal(resp, &page); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
-	return successResult(fmt.Sprintf("Wiki page updated successfully!\nPath: %s\nID: %d", page.Path, page.ID)), nil
+	return successResult(fmt.Sprintf("Wiki page updated successfully!\nPath: %s\nID: %d", page.Path, page.ID)), nil, nil
 }
 
-func listPipelinesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ListPipelinesParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func listPipelinesHandler(ctx context.Context, req *mcp.CallToolRequest, input ListPipelinesParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.Project == "" {
-		return errorResult("project is required"), nil
+		return errorResult("project is required"), nil, nil
 	}
 
 	top := args.Top
@@ -1658,7 +1658,7 @@ func listPipelinesHandler(ctx context.Context, cc *mcp.ServerSession, params *mc
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to list pipelines: " + err.Error()), nil
+		return errorResult("Failed to list pipelines: " + err.Error()), nil, nil
 	}
 
 	var result struct {
@@ -1672,7 +1672,7 @@ func listPipelinesHandler(ctx context.Context, cc *mcp.ServerSession, params *mc
 	}
 
 	if err := json.Unmarshal(resp, &result); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -1686,19 +1686,19 @@ func listPipelinesHandler(ctx context.Context, cc *mcp.ServerSession, params *mc
 		output.WriteString("\n")
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func getPipelineHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetPipelineParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func getPipelineHandler(ctx context.Context, req *mcp.CallToolRequest, input GetPipelineParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.Project == "" || args.PipelineID == 0 {
-		return errorResult("project and pipeline_id are required"), nil
+		return errorResult("project and pipeline_id are required"), nil, nil
 	}
 
 	endpoint := fmt.Sprintf("%s/%s/_apis/pipelines/%d?api-version=%s",
@@ -1706,7 +1706,7 @@ func getPipelineHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to get pipeline: " + err.Error()), nil
+		return errorResult("Failed to get pipeline: " + err.Error()), nil, nil
 	}
 
 	var pipeline struct {
@@ -1722,7 +1722,7 @@ func getPipelineHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 	}
 
 	if err := json.Unmarshal(resp, &pipeline); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -1739,19 +1739,19 @@ func getPipelineHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 		output.WriteString(fmt.Sprintf("Path: %s\n", pipeline.Configuration.Path))
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func listPipelineRunsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ListPipelineRunsParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func listPipelineRunsHandler(ctx context.Context, req *mcp.CallToolRequest, input ListPipelineRunsParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.Project == "" || args.PipelineID == 0 {
-		return errorResult("project and pipeline_id are required"), nil
+		return errorResult("project and pipeline_id are required"), nil, nil
 	}
 
 	top := args.Top
@@ -1764,7 +1764,7 @@ func listPipelineRunsHandler(ctx context.Context, cc *mcp.ServerSession, params 
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to list pipeline runs: " + err.Error()), nil
+		return errorResult("Failed to list pipeline runs: " + err.Error()), nil, nil
 	}
 
 	var result struct {
@@ -1780,7 +1780,7 @@ func listPipelineRunsHandler(ctx context.Context, cc *mcp.ServerSession, params 
 	}
 
 	if err := json.Unmarshal(resp, &result); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -1809,19 +1809,19 @@ func listPipelineRunsHandler(ctx context.Context, cc *mcp.ServerSession, params 
 		output.WriteString(fmt.Sprintf("   Started: %s\n\n", run.CreatedDate))
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func runPipelineHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[RunPipelineParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func runPipelineHandler(ctx context.Context, req *mcp.CallToolRequest, input RunPipelineParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.Project == "" || args.PipelineID == 0 {
-		return errorResult("project and pipeline_id are required"), nil
+		return errorResult("project and pipeline_id are required"), nil, nil
 	}
 
 	endpoint := fmt.Sprintf("%s/%s/_apis/pipelines/%d/runs?api-version=%s",
@@ -1846,7 +1846,7 @@ func runPipelineHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 
 	resp, err := client.makeRequest("POST", endpoint, strings.NewReader(string(payloadBytes)))
 	if err != nil {
-		return errorResult("Failed to run pipeline: " + err.Error()), nil
+		return errorResult("Failed to run pipeline: " + err.Error()), nil, nil
 	}
 
 	var run struct {
@@ -1857,22 +1857,22 @@ func runPipelineHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.
 	}
 
 	if err := json.Unmarshal(resp, &run); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
-	return successResult(fmt.Sprintf("Pipeline run #%d started!\nName: %s\nState: %s", run.ID, run.Name, run.State)), nil
+	return successResult(fmt.Sprintf("Pipeline run #%d started!\nName: %s\nState: %s", run.ID, run.Name, run.State)), nil, nil
 }
 
-func listBuildsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ListBuildsParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func listBuildsHandler(ctx context.Context, req *mcp.CallToolRequest, input ListBuildsParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.Project == "" {
-		return errorResult("project is required"), nil
+		return errorResult("project is required"), nil, nil
 	}
 
 	top := args.Top
@@ -1892,7 +1892,7 @@ func listBuildsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to list builds: " + err.Error()), nil
+		return errorResult("Failed to list builds: " + err.Error()), nil, nil
 	}
 
 	var result struct {
@@ -1915,7 +1915,7 @@ func listBuildsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 	}
 
 	if err := json.Unmarshal(resp, &result); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -1943,19 +1943,19 @@ func listBuildsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 		output.WriteString(fmt.Sprintf("   By: %s | Started: %s\n\n", build.RequestedBy.DisplayName, build.StartTime))
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
-func getBuildHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetBuildParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
+func getBuildHandler(ctx context.Context, req *mcp.CallToolRequest, input GetBuildParams) (*mcp.CallToolResult, any, error) {
+	args := input
 	client := NewAzureDevOpsClient()
 
 	if err := client.validate(); err != nil {
-		return errorResult(err.Error()), nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	if args.Project == "" || args.BuildID == 0 {
-		return errorResult("project and build_id are required"), nil
+		return errorResult("project and build_id are required"), nil, nil
 	}
 
 	endpoint := fmt.Sprintf("%s/%s/_apis/build/builds/%d?api-version=%s",
@@ -1963,7 +1963,7 @@ func getBuildHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Cal
 
 	resp, err := client.makeRequest("GET", endpoint, nil)
 	if err != nil {
-		return errorResult("Failed to get build: " + err.Error()), nil
+		return errorResult("Failed to get build: " + err.Error()), nil, nil
 	}
 
 	var build struct {
@@ -1989,7 +1989,7 @@ func getBuildHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Cal
 	}
 
 	if err := json.Unmarshal(resp, &build); err != nil {
-		return errorResult("Failed to parse response: " + err.Error()), nil
+		return errorResult("Failed to parse response: " + err.Error()), nil, nil
 	}
 
 	var output strings.Builder
@@ -2016,7 +2016,7 @@ func getBuildHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Cal
 		output.WriteString(fmt.Sprintf("Finished: %s\n", build.FinishTime))
 	}
 
-	return successResult(output.String()), nil
+	return successResult(output.String()), nil, nil
 }
 
 // Helper functions
@@ -2152,15 +2152,15 @@ func (c *AzureDevOpsClient) makeRequestWithIfMatch(method, endpoint string, body
 	return respBody, nil
 }
 
-func errorResult(msg string) *mcp.CallToolResultFor[any] {
-	return &mcp.CallToolResultFor[any]{
+func errorResult(msg string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
 		IsError: true,
 		Content: []mcp.Content{&mcp.TextContent{Text: msg}},
 	}
 }
 
-func successResult(msg string) *mcp.CallToolResultFor[any] {
-	return &mcp.CallToolResultFor[any]{
+func successResult(msg string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: msg}},
 	}
 }

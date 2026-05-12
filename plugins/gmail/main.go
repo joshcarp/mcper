@@ -80,7 +80,7 @@ func (c *GmailClient) isConfigured() bool {
 
 func main() {
 	// Create a new MCP server
-	server := mcp.NewServer("Gmail MCP Server", "1.0.0", nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: "Gmail MCP Server", Version: "1.0.0"}, nil)
 
 	// Add Gmail tools
 	mcp.AddTool(server, &mcp.Tool{
@@ -121,7 +121,7 @@ func main() {
 	// Start the server
 	log.Println("Starting Gmail MCP Server...")
 	ctx := context.Background()
-	if err := server.Run(ctx, mcp.NewStdioTransport()); err != nil {
+	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil {
 		log.Fatalf("Failed to run MCP server: %v", err)
 	}
 }
@@ -168,16 +168,16 @@ type ModifyLabelsParams struct {
 }
 
 // listMessagesHandler handles listing Gmail messages
-func listMessagesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ListMessagesParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
-	userID := extractUserID(params.Meta)
+func listMessagesHandler(ctx context.Context, req *mcp.CallToolRequest, input ListMessagesParams) (*mcp.CallToolResult, any, error) {
+	args := input
+	userID := extractUserID(req.Params.Meta)
 	client := NewGmailClient(userID)
 
 	if !client.isConfigured() {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: "Gmail not configured. Please authenticate with Google through MCPer."}},
-		}, nil
+		}, nil, nil
 	}
 
 	maxResults := args.MaxResults
@@ -187,35 +187,35 @@ func listMessagesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp
 
 	result, err := client.listMessages(args.LabelIds, args.Query, maxResults)
 	if err != nil {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Failed to list messages: %v", err)}},
-		}, nil
+		}, nil, nil
 	}
 
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: result}},
-	}, nil
+	}, nil, nil
 }
 
 // getMessageHandler handles getting a specific message
-func getMessageHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetMessageParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
-	userID := extractUserID(params.Meta)
+func getMessageHandler(ctx context.Context, req *mcp.CallToolRequest, input GetMessageParams) (*mcp.CallToolResult, any, error) {
+	args := input
+	userID := extractUserID(req.Params.Meta)
 	client := NewGmailClient(userID)
 
 	if !client.isConfigured() {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: "Gmail not configured. Please authenticate with Google through MCPer."}},
-		}, nil
+		}, nil, nil
 	}
 
 	if args.MessageID == "" {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: "message_id is required"}},
-		}, nil
+		}, nil, nil
 	}
 
 	format := args.Format
@@ -225,35 +225,35 @@ func getMessageHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 
 	result, err := client.getMessage(args.MessageID, format)
 	if err != nil {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Failed to get message: %v", err)}},
-		}, nil
+		}, nil, nil
 	}
 
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: result}},
-	}, nil
+	}, nil, nil
 }
 
 // searchMessagesHandler handles searching messages
-func searchMessagesHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[SearchParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
-	userID := extractUserID(params.Meta)
+func searchMessagesHandler(ctx context.Context, req *mcp.CallToolRequest, input SearchParams) (*mcp.CallToolResult, any, error) {
+	args := input
+	userID := extractUserID(req.Params.Meta)
 	client := NewGmailClient(userID)
 
 	if !client.isConfigured() {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: "Gmail not configured. Please authenticate with Google through MCPer."}},
-		}, nil
+		}, nil, nil
 	}
 
 	if args.Query == "" {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: "query is required (e.g., 'from:user@example.com', 'subject:hello', 'is:unread')"}},
-		}, nil
+		}, nil, nil
 	}
 
 	maxResults := args.MaxResults
@@ -263,163 +263,163 @@ func searchMessagesHandler(ctx context.Context, cc *mcp.ServerSession, params *m
 
 	result, err := client.listMessages("", args.Query, maxResults)
 	if err != nil {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Search failed: %v", err)}},
-		}, nil
+		}, nil, nil
 	}
 
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: result}},
-	}, nil
+	}, nil, nil
 }
 
 // sendMessageHandler handles sending a new message
-func sendMessageHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[SendMessageParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
-	userID := extractUserID(params.Meta)
+func sendMessageHandler(ctx context.Context, req *mcp.CallToolRequest, input SendMessageParams) (*mcp.CallToolResult, any, error) {
+	args := input
+	userID := extractUserID(req.Params.Meta)
 	client := NewGmailClient(userID)
 
 	if !client.isConfigured() {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: "Gmail not configured. Please authenticate with Google through MCPer."}},
-		}, nil
+		}, nil, nil
 	}
 
 	if args.To == "" {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: "to (recipient email) is required"}},
-		}, nil
+		}, nil, nil
 	}
 
 	if args.Subject == "" {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: "subject is required"}},
-		}, nil
+		}, nil, nil
 	}
 
 	result, err := client.sendMessage(args.To, args.Subject, args.Body, args.CC, args.BCC)
 	if err != nil {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Failed to send message: %v", err)}},
-		}, nil
+		}, nil, nil
 	}
 
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: result}},
-	}, nil
+	}, nil, nil
 }
 
 // replyMessageHandler handles replying to a message
-func replyMessageHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ReplyMessageParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
-	userID := extractUserID(params.Meta)
+func replyMessageHandler(ctx context.Context, req *mcp.CallToolRequest, input ReplyMessageParams) (*mcp.CallToolResult, any, error) {
+	args := input
+	userID := extractUserID(req.Params.Meta)
 	client := NewGmailClient(userID)
 
 	if !client.isConfigured() {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: "Gmail not configured. Please authenticate with Google through MCPer."}},
-		}, nil
+		}, nil, nil
 	}
 
 	if args.MessageID == "" {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: "message_id is required"}},
-		}, nil
+		}, nil, nil
 	}
 
 	if args.Body == "" {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: "body is required"}},
-		}, nil
+		}, nil, nil
 	}
 
 	result, err := client.replyToMessage(args.MessageID, args.Body)
 	if err != nil {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Failed to reply: %v", err)}},
-		}, nil
+		}, nil, nil
 	}
 
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: result}},
-	}, nil
+	}, nil, nil
 }
 
 // EmptyParams for tools with no parameters
 type EmptyParams struct{}
 
 // listLabelsHandler handles listing Gmail labels
-func listLabelsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[EmptyParams]) (*mcp.CallToolResultFor[any], error) {
-	userID := extractUserID(params.Meta)
+func listLabelsHandler(ctx context.Context, req *mcp.CallToolRequest, input EmptyParams) (*mcp.CallToolResult, any, error) {
+	userID := extractUserID(req.Params.Meta)
 	client := NewGmailClient(userID)
 
 	if !client.isConfigured() {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: "Gmail not configured. Please authenticate with Google through MCPer."}},
-		}, nil
+		}, nil, nil
 	}
 
 	result, err := client.listLabels()
 	if err != nil {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Failed to list labels: %v", err)}},
-		}, nil
+		}, nil, nil
 	}
 
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: result}},
-	}, nil
+	}, nil, nil
 }
 
 // modifyLabelsHandler handles modifying message labels
-func modifyLabelsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ModifyLabelsParams]) (*mcp.CallToolResultFor[any], error) {
-	args := params.Arguments
-	userID := extractUserID(params.Meta)
+func modifyLabelsHandler(ctx context.Context, req *mcp.CallToolRequest, input ModifyLabelsParams) (*mcp.CallToolResult, any, error) {
+	args := input
+	userID := extractUserID(req.Params.Meta)
 	client := NewGmailClient(userID)
 
 	if !client.isConfigured() {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: "Gmail not configured. Please authenticate with Google through MCPer."}},
-		}, nil
+		}, nil, nil
 	}
 
 	if args.MessageID == "" {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: "message_id is required"}},
-		}, nil
+		}, nil, nil
 	}
 
 	if args.AddLabels == "" && args.RemoveLabels == "" {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: "At least one of add_labels or remove_labels is required"}},
-		}, nil
+		}, nil, nil
 	}
 
 	result, err := client.modifyLabels(args.MessageID, args.AddLabels, args.RemoveLabels)
 	if err != nil {
-		return &mcp.CallToolResultFor[any]{
+		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Failed to modify labels: %v", err)}},
-		}, nil
+		}, nil, nil
 	}
 
-	return &mcp.CallToolResultFor[any]{
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: result}},
-	}, nil
+	}, nil, nil
 }
 
 // Gmail API methods

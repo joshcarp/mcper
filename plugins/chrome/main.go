@@ -40,7 +40,7 @@ func init() {
 }
 
 func main() {
-	server := mcp.NewServer("Chrome Control MCP Server", "1.0.0", nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: "Chrome Control MCP Server", Version: "1.0.0"}, nil)
 
 	// Navigation tools
 	mcp.AddTool(server, &mcp.Tool{
@@ -119,7 +119,7 @@ func main() {
 
 	log.Println("Starting Chrome Control MCP Server...")
 	ctx := context.Background()
-	if err := server.Run(ctx, mcp.NewStdioTransport()); err != nil {
+	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil {
 		log.Fatalf("Failed to run MCP server: %v", err)
 	}
 }
@@ -248,75 +248,75 @@ type CDPParams struct {
 
 // Tool handlers
 
-func navigateHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[NavigateParams]) (*mcp.CallToolResultFor[any], error) {
-	if params.Arguments.URL == "" {
+func navigateHandler(ctx context.Context, req *mcp.CallToolRequest, input NavigateParams) (*mcp.CallToolResult, any, error) {
+	if input.URL == "" {
 		return errorResult("url is required")
 	}
 
-	result, err := sendCommand("navigate", params.Arguments)
+	result, err := sendCommand("navigate", input)
 	if err != nil {
 		return errorResult(err.Error())
 	}
 
-	return successResult(fmt.Sprintf("Navigated to %s (tab: %v)", params.Arguments.URL, result["tabId"]))
+	return successResult(fmt.Sprintf("Navigated to %s (tab: %v)", input.URL, result["tabId"]))
 }
 
-func clickHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ClickParams]) (*mcp.CallToolResultFor[any], error) {
-	if params.Arguments.Selector == "" {
+func clickHandler(ctx context.Context, req *mcp.CallToolRequest, input ClickParams) (*mcp.CallToolResult, any, error) {
+	if input.Selector == "" {
 		return errorResult("selector is required")
 	}
 
-	result, err := sendCommand("click", params.Arguments)
+	result, err := sendCommand("click", input)
 	if err != nil {
 		return errorResult(err.Error())
 	}
 
-	return successResult(fmt.Sprintf("Clicked element: %s (result: %v)", params.Arguments.Selector, result["success"]))
+	return successResult(fmt.Sprintf("Clicked element: %s (result: %v)", input.Selector, result["success"]))
 }
 
-func typeHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[TypeParams]) (*mcp.CallToolResultFor[any], error) {
-	if params.Arguments.Selector == "" {
+func typeHandler(ctx context.Context, req *mcp.CallToolRequest, input TypeParams) (*mcp.CallToolResult, any, error) {
+	if input.Selector == "" {
 		return errorResult("selector is required")
 	}
-	if params.Arguments.Text == "" {
+	if input.Text == "" {
 		return errorResult("text is required")
 	}
 
-	result, err := sendCommand("type", params.Arguments)
+	result, err := sendCommand("type", input)
 	if err != nil {
 		return errorResult(err.Error())
 	}
 
-	return successResult(fmt.Sprintf("Typed into %s: %q (result: %v)", params.Arguments.Selector, params.Arguments.Text, result["success"]))
+	return successResult(fmt.Sprintf("Typed into %s: %q (result: %v)", input.Selector, input.Text, result["success"]))
 }
 
-func scrollHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ScrollParams]) (*mcp.CallToolResultFor[any], error) {
-	result, err := sendCommand("scroll", params.Arguments)
+func scrollHandler(ctx context.Context, req *mcp.CallToolRequest, input ScrollParams) (*mcp.CallToolResult, any, error) {
+	result, err := sendCommand("scroll", input)
 	if err != nil {
 		return errorResult(err.Error())
 	}
 
-	if params.Arguments.Selector != "" {
-		return successResult(fmt.Sprintf("Scrolled element into view: %s", params.Arguments.Selector))
+	if input.Selector != "" {
+		return successResult(fmt.Sprintf("Scrolled element into view: %s", input.Selector))
 	}
-	return successResult(fmt.Sprintf("Scrolled by (%d, %d) (result: %v)", params.Arguments.X, params.Arguments.Y, result))
+	return successResult(fmt.Sprintf("Scrolled by (%d, %d) (result: %v)", input.X, input.Y, result))
 }
 
-func waitHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[WaitParams]) (*mcp.CallToolResultFor[any], error) {
-	if params.Arguments.Selector == "" {
+func waitHandler(ctx context.Context, req *mcp.CallToolRequest, input WaitParams) (*mcp.CallToolResult, any, error) {
+	if input.Selector == "" {
 		return errorResult("selector is required")
 	}
 
-	result, err := sendCommand("wait", params.Arguments)
+	result, err := sendCommand("wait", input)
 	if err != nil {
 		return errorResult(err.Error())
 	}
 
-	return successResult(fmt.Sprintf("Element found: %s (state: %s, result: %v)", params.Arguments.Selector, params.Arguments.State, result["success"]))
+	return successResult(fmt.Sprintf("Element found: %s (state: %s, result: %v)", input.Selector, input.State, result["success"]))
 }
 
-func screenshotHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[ScreenshotParams]) (*mcp.CallToolResultFor[any], error) {
-	result, err := sendCommand("screenshot", params.Arguments)
+func screenshotHandler(ctx context.Context, req *mcp.CallToolRequest, input ScreenshotParams) (*mcp.CallToolResult, any, error) {
+	result, err := sendCommand("screenshot", input)
 	if err != nil {
 		return errorResult(err.Error())
 	}
@@ -327,7 +327,7 @@ func screenshotHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 	}
 
 	// Return just metadata, as the full base64 would be huge
-	format := params.Arguments.Format
+	format := input.Format
 	if format == "" {
 		format = "png"
 	}
@@ -335,8 +335,8 @@ func screenshotHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.C
 	return successResult(fmt.Sprintf("Screenshot captured (%s format, %d bytes base64 data)\n\nData URL: %s", format, len(dataUrl), dataUrl))
 }
 
-func getHtmlHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetHtmlParams]) (*mcp.CallToolResultFor[any], error) {
-	result, err := sendCommand("get_html", params.Arguments)
+func getHtmlHandler(ctx context.Context, req *mcp.CallToolRequest, input GetHtmlParams) (*mcp.CallToolResult, any, error) {
+	result, err := sendCommand("get_html", input)
 	if err != nil {
 		return errorResult(err.Error())
 	}
@@ -354,8 +354,8 @@ func getHtmlHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 	return successResult(html)
 }
 
-func getTextHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[GetTextParams]) (*mcp.CallToolResultFor[any], error) {
-	result, err := sendCommand("get_text", params.Arguments)
+func getTextHandler(ctx context.Context, req *mcp.CallToolRequest, input GetTextParams) (*mcp.CallToolResult, any, error) {
+	result, err := sendCommand("get_text", input)
 	if err != nil {
 		return errorResult(err.Error())
 	}
@@ -373,12 +373,12 @@ func getTextHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Call
 	return successResult(text)
 }
 
-func evaluateHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[EvaluateParams]) (*mcp.CallToolResultFor[any], error) {
-	if params.Arguments.Script == "" {
+func evaluateHandler(ctx context.Context, req *mcp.CallToolRequest, input EvaluateParams) (*mcp.CallToolResult, any, error) {
+	if input.Script == "" {
 		return errorResult("script is required")
 	}
 
-	result, err := sendCommand("evaluate", params.Arguments)
+	result, err := sendCommand("evaluate", input)
 	if err != nil {
 		return errorResult(err.Error())
 	}
@@ -387,7 +387,7 @@ func evaluateHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Cal
 	return successResult(fmt.Sprintf("Script executed. Result: %s", evalResult))
 }
 
-func listTabsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[struct{}]) (*mcp.CallToolResultFor[any], error) {
+func listTabsHandler(ctx context.Context, req *mcp.CallToolRequest, input struct{}) (*mcp.CallToolResult, any, error) {
 	result, err := sendCommand("list_tabs", nil)
 	if err != nil {
 		return errorResult(err.Error())
@@ -418,21 +418,21 @@ func listTabsHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Cal
 	return successResult(output)
 }
 
-func switchTabHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[TabIDParams]) (*mcp.CallToolResultFor[any], error) {
-	if params.Arguments.TabID == 0 {
+func switchTabHandler(ctx context.Context, req *mcp.CallToolRequest, input TabIDParams) (*mcp.CallToolResult, any, error) {
+	if input.TabID == 0 {
 		return errorResult("tab_id is required")
 	}
 
-	result, err := sendCommand("switch_tab", params.Arguments)
+	result, err := sendCommand("switch_tab", input)
 	if err != nil {
 		return errorResult(err.Error())
 	}
 
-	return successResult(fmt.Sprintf("Switched to tab %d (result: %v)", params.Arguments.TabID, result["success"]))
+	return successResult(fmt.Sprintf("Switched to tab %d (result: %v)", input.TabID, result["success"]))
 }
 
-func newTabHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[NewTabParams]) (*mcp.CallToolResultFor[any], error) {
-	result, err := sendCommand("new_tab", params.Arguments)
+func newTabHandler(ctx context.Context, req *mcp.CallToolRequest, input NewTabParams) (*mcp.CallToolResult, any, error) {
+	result, err := sendCommand("new_tab", input)
 	if err != nil {
 		return errorResult(err.Error())
 	}
@@ -440,8 +440,8 @@ func newTabHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallT
 	return successResult(fmt.Sprintf("New tab created (ID: %v, URL: %v)", result["tabId"], result["url"]))
 }
 
-func closeTabHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[TabIDParams]) (*mcp.CallToolResultFor[any], error) {
-	result, err := sendCommand("close_tab", params.Arguments)
+func closeTabHandler(ctx context.Context, req *mcp.CallToolRequest, input TabIDParams) (*mcp.CallToolResult, any, error) {
+	result, err := sendCommand("close_tab", input)
 	if err != nil {
 		return errorResult(err.Error())
 	}
@@ -449,31 +449,31 @@ func closeTabHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.Cal
 	return successResult(fmt.Sprintf("Tab closed (ID: %v)", result["tabId"]))
 }
 
-func cdpHandler(ctx context.Context, cc *mcp.ServerSession, params *mcp.CallToolParamsFor[CDPParams]) (*mcp.CallToolResultFor[any], error) {
-	if params.Arguments.Method == "" {
+func cdpHandler(ctx context.Context, req *mcp.CallToolRequest, input CDPParams) (*mcp.CallToolResult, any, error) {
+	if input.Method == "" {
 		return errorResult("method is required")
 	}
 
-	result, err := sendCommand("cdp", params.Arguments)
+	result, err := sendCommand("cdp", input)
 	if err != nil {
 		return errorResult(err.Error())
 	}
 
 	resultJSON, _ := json.MarshalIndent(result, "", "  ")
-	return successResult(fmt.Sprintf("CDP command executed: %s\n\nResult:\n%s", params.Arguments.Method, string(resultJSON)))
+	return successResult(fmt.Sprintf("CDP command executed: %s\n\nResult:\n%s", input.Method, string(resultJSON)))
 }
 
 // Helper functions
 
-func successResult(message string) (*mcp.CallToolResultFor[any], error) {
-	return &mcp.CallToolResultFor[any]{
+func successResult(message string) (*mcp.CallToolResult, any, error) {
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: message}},
-	}, nil
+	}, nil, nil
 }
 
-func errorResult(message string) (*mcp.CallToolResultFor[any], error) {
-	return &mcp.CallToolResultFor[any]{
+func errorResult(message string) (*mcp.CallToolResult, any, error) {
+	return &mcp.CallToolResult{
 		IsError: true,
 		Content: []mcp.Content{&mcp.TextContent{Text: message}},
-	}, nil
+	}, nil, nil
 }
