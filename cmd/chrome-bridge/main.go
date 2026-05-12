@@ -8,6 +8,13 @@
 //   chrome-bridge -server -port 8080         # Custom HTTP port
 //   chrome-bridge -server -headless=false    # Run with visible Chrome window
 //   chrome-bridge -server -chrome-path=/path # Custom Chrome path
+//
+// SECURITY: the bridge binds to 127.0.0.1 only. /evaluate runs arbitrary
+// JavaScript in whatever Chrome session is open (including any logged-in
+// site). /navigate accepts any URL. Without binding restrictions any host
+// on the LAN — and any website Josh visits, via DNS rebinding — gets
+// full session takeover of every logged-in site. The Origin/Host check
+// below blocks the DNS-rebinding path even on 127.0.0.1.
 
 package main
 
@@ -19,9 +26,11 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -48,6 +57,7 @@ func main() {
 	port := flag.Int("port", 9223, "HTTP server port")
 	headless := flag.Bool("headless", true, "Run Chrome in headless mode")
 	chromePath := flag.String("chrome-path", "", "Path to Chrome executable (auto-detect if empty)")
+	bindAddr := flag.String("bind", "127.0.0.1", "Bind address — leave at 127.0.0.1 unless you understand the security implications (see top-of-file comment)")
 	flag.Bool("server", true, "Run as HTTP server (default, kept for compatibility)")
 	flag.Parse()
 
@@ -88,10 +98,10 @@ func main() {
 	mux.HandleFunc("/scroll", bridge.handleScroll)
 	mux.HandleFunc("/wait", bridge.handleWait)
 
-	handler := corsMiddleware(mux)
+	handler := corsMiddleware(loopbackOnlyMiddleware(mux))
 
 	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", *port),
+		Addr:    fmt.Sprintf("%s:%d", *bindAddr, *port),
 		Handler: handler,
 	}
 
@@ -110,8 +120,11 @@ func main() {
 	if !*headless {
 		mode = "visible"
 	}
-	log.Printf("MCPER Chrome Bridge starting on port %d (Chrome: %s)", *port, mode)
+	log.Printf("MCPER Chrome Bridge starting on %s:%d (Chrome: %s)", *bindAddr, *port, mode)
 	log.Printf("No extension required - controlling Chrome directly via CDP")
+	if *bindAddr != "127.0.0.1" && *bindAddr != "localhost" && *bindAddr != "::1" {
+		log.Printf("WARNING: bind address %q exposes the bridge beyond localhost. Anyone who can reach this port gets full session takeover of every site Chrome is logged in to.", *bindAddr)
+	}
 
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
 		log.Fatalf("HTTP server error: %v", err)
@@ -161,9 +174,19 @@ func (b *Bridge) getContext() context.Context {
 	return b.browserCtx
 }
 
+// corsMiddleware mirrors the request Origin only if it's a loopback origin.
+// We do NOT echo "*" — that combined with the bridge's RCE-by-design
+// /evaluate endpoint turns any website Josh visits into a session-takeover
+// vector via fetch('http://127.0.0.1:9223/evaluate', ...). Real local
+// callers (Claude Code MCP client, the extension via native messaging)
+// either don't go through the browser CORS dance or run with a loopback
+// Origin.
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if origin := r.Header.Get("Origin"); isLoopbackOrigin(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
@@ -174,6 +197,123 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// loopbackOnlyMiddleware blocks two specific attack paths that 127.0.0.1
+// binding does NOT, by itself, prevent:
+//
+//  1. DNS rebinding: a malicious page Josh visits resolves
+//     attacker-domain.example -> 127.0.0.1 after a short TTL, then issues
+//     fetch('http://attacker-domain.example:9223/evaluate', ...). The
+//     packet hits this server on 127.0.0.1 but Host: is "attacker-domain"
+//     and Origin is "https://attacker-domain.example".
+//
+//  2. Cross-origin requests from a browser open on Josh's machine. With
+//     a wildcard Host accepted, CORS becomes the only gate, and the old
+//     "Access-Control-Allow-Origin: *" effectively had no gate.
+//
+// Policy: reject any request whose Host header is not a loopback authority
+// (127.0.0.1[:port], [::1][:port], localhost[:port]) AND whose Origin (if
+// set at all) is not loopback. health is exempted so probes work, and
+// requests with no Host (HTTP/1.0) are rejected.
+func loopbackOnlyMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if !isLoopbackHost(r.Host) {
+			http.Error(w, "Host header must be a loopback authority (127.0.0.1, [::1], localhost) — refusing in case of DNS rebinding", http.StatusForbidden)
+			return
+		}
+		if origin := r.Header.Get("Origin"); origin != "" && !isLoopbackOrigin(origin) {
+			http.Error(w, "Origin must be a loopback origin", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// isLoopbackHost returns true if host (Host header, possibly host:port) is
+// a literal loopback address or "localhost".
+func isLoopbackHost(host string) bool {
+	if host == "" {
+		return false
+	}
+	h := host
+	if i := strings.LastIndex(host, ":"); i > 0 && strings.Count(host, ":") == 1 {
+		h = host[:i]
+	} else if strings.HasPrefix(host, "[") {
+		// [::1]:port form
+		if i := strings.Index(host, "]"); i > 0 {
+			h = host[1:i]
+		}
+	}
+	h = strings.ToLower(h)
+	if h == "localhost" {
+		return true
+	}
+	if ip := net.ParseIP(h); ip != nil && ip.IsLoopback() {
+		return true
+	}
+	return false
+}
+
+// isLoopbackOrigin returns true if origin (scheme://host[:port]) has a
+// loopback host. Used to mirror CORS only to local callers.
+func isLoopbackOrigin(origin string) bool {
+	// strip scheme
+	idx := strings.Index(origin, "://")
+	if idx < 0 {
+		return false
+	}
+	return isLoopbackHost(origin[idx+3:])
+}
+
+// validateNavigateURL returns an error if raw is not a public web URL.
+// Specifically rejects: non-http(s) schemes (file, chrome, chrome-extension,
+// view-source, data, javascript, ftp), literal cloud-metadata IPs, and any
+// loopback / RFC1918 / link-local address (this bridge runs locally; a
+// caller asking it to navigate to 169.254.169.254 or 192.168.1.x is up to
+// no good).
+func validateNavigateURL(raw string) error {
+	// scheme check first — keeps trash like "javascript:alert(1)" out
+	lower := strings.ToLower(strings.TrimSpace(raw))
+	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
+		return fmt.Errorf("only http(s) URLs are allowed")
+	}
+	// pull host
+	rest := lower[strings.Index(lower, "://")+3:]
+	// strip path/query
+	if i := strings.IndexAny(rest, "/?#"); i >= 0 {
+		rest = rest[:i]
+	}
+	// strip user@
+	if i := strings.LastIndex(rest, "@"); i >= 0 {
+		rest = rest[i+1:]
+	}
+	// strip port
+	host := rest
+	if strings.HasPrefix(rest, "[") {
+		// [::1]:port
+		if i := strings.Index(rest, "]"); i > 0 {
+			host = rest[1:i]
+		}
+	} else if i := strings.LastIndex(rest, ":"); i > 0 && strings.Count(rest, ":") == 1 {
+		host = rest[:i]
+	}
+	switch host {
+	case "metadata.google.internal", "metadata", "metadata.goog", "instance-data.ec2.internal", "instance-data":
+		return fmt.Errorf("cloud-metadata host is blocked")
+	case "localhost":
+		return fmt.Errorf("loopback hostname is blocked")
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsPrivate() || ip.IsUnspecified() {
+			return fmt.Errorf("loopback / private / link-local IP is blocked")
+		}
+	}
+	return nil
 }
 
 func (b *Bridge) handleCommand(w http.ResponseWriter, r *http.Request) {
@@ -246,6 +386,16 @@ func (b *Bridge) doNavigate(w http.ResponseWriter, params json.RawMessage) {
 
 	if p.URL == "" {
 		jsonError(w, "url is required", http.StatusBadRequest)
+		return
+	}
+
+	// Refuse to navigate to schemes / hosts that turn this endpoint into a
+	// data exfiltration primitive: file:// reads local files into the page,
+	// chrome:// exposes browser internals (settings, devtools), data: can
+	// stage XSS payloads, and metadata IPs leak cloud workload identity
+	// when the bridge is somehow run in a cloud VM.
+	if err := validateNavigateURL(p.URL); err != nil {
+		jsonError(w, fmt.Sprintf("Refused: %s", err.Error()), http.StatusBadRequest)
 		return
 	}
 
