@@ -7,6 +7,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// version is set at build time via -ldflags "-X main.version=..."
+var version string
+
+func init() {
+	if version != "" {
+		mcper.Version = version
+	}
+}
+
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Show version information",
