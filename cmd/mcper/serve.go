@@ -16,6 +16,7 @@ import (
 	"github.com/joshcarp/mcper/pkg/mcper"
 	"github.com/joshcarp/mcper/pkg/wasmhost"
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 )
@@ -374,7 +375,7 @@ func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Ser
 		namespace = namespaceCloud
 	}
 	for _, tool := range tools.Tools {
-		registerForwardedTool(server, session, namespace, pluginName, "Tool call failed", tool)
+		registerForwardedTool(server, session, namespace, pluginName, "Tool call failed", tool, nil)
 	}
 
 	return session, nil
@@ -401,7 +402,7 @@ func loadHTTPPlugin(ctx context.Context, server *mcp.Server, name string, plugin
 
 	// Register each tool with the MCP server
 	for _, tool := range tools.Tools {
-		registerForwardedTool(server, session, namespaceHTTP, pluginName, "Tool call failed", tool)
+		registerForwardedTool(server, session, namespaceHTTP, pluginName, "Tool call failed", tool, nil)
 	}
 
 	return session, nil
@@ -456,7 +457,7 @@ func loadCloudPlugin(ctx context.Context, server *mcp.Server, name string, plugi
 
 	// Register each tool with the MCP server
 	for _, tool := range tools.Tools {
-		registerForwardedTool(server, session, namespaceCloud, pluginName, "Cloud tool call failed", tool)
+		registerForwardedTool(server, session, namespaceCloud, pluginName, "Cloud tool call failed", tool, nil)
 	}
 
 	log.Printf("Successfully connected to cloud plugin with %d tools", len(tools.Tools))
@@ -470,7 +471,19 @@ func loadCloudPlugin(ctx context.Context, server *mcp.Server, name string, plugi
 //
 // errPrefix is prepended to the error text when the downstream session
 // returns an error (e.g. "Cloud tool call failed", "Tool call failed").
-func registerForwardedTool(server *mcp.Server, session *mcp.ClientSession, namespace, pluginName, errPrefix string, tool *mcp.Tool) {
+// CapContext, when non-nil, signals registerForwardedTool to mint a cap
+// per tools/call and inject it into MCP _meta so the plugin's
+// proxy-aware HTTP client can attach X-MCPER-Cap to upstream requests.
+// Built per-plugin in serve.go's plugin loader when MCPER_USE_CAP_PROXY=true.
+type CapContext struct {
+	Cloud         *mcper.CloudClient
+	Manifest      *mcper.PluginInfoV2
+	PluginVersion string
+	ManifestHash  string
+	ProxyURL      string
+}
+
+func registerForwardedTool(server *mcp.Server, session *mcp.ClientSession, namespace, pluginName, errPrefix string, tool *mcp.Tool, capCtx *CapContext) {
 	inputSchema, _ := tool.InputSchema.(*jsonschema.Schema)
 	if inputSchema == nil || inputSchema.Type == "" {
 		inputSchema = &jsonschema.Schema{Type: "object", Properties: map[string]*jsonschema.Schema{}}
@@ -478,10 +491,46 @@ func registerForwardedTool(server *mcp.Server, session *mcp.ClientSession, names
 	toolSession := session
 	toolName := tool.Name
 	handler := func(ctx context.Context, _ *mcp.CallToolRequest, input map[string]any) (*mcp.CallToolResult, any, error) {
-		result, err := toolSession.CallTool(ctx, &mcp.CallToolParams{
+		params := &mcp.CallToolParams{
 			Name:      toolName,
 			Arguments: input,
-		})
+		}
+		if capCtx != nil {
+			// PR 5: per-tools/call cap mint + _meta injection.
+			invocationID := uuid.NewString()
+			req := &mcper.CapMintRequest{
+				Plugin:        pluginName,
+				PluginVersion: capCtx.PluginVersion,
+				ManifestHash:  capCtx.ManifestHash,
+				Tool:          toolName,
+				InvocationID:  invocationID,
+				Args:          input,
+			}
+			cap, pending, err := capCtx.Cloud.MintCap(ctx, req)
+			if err != nil {
+				return &mcp.CallToolResult{
+					IsError: true,
+					Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("cap mint: %v", err)}},
+				}, nil, nil
+			}
+			if pending != nil {
+				// Pre-approval: long-poll until decision.
+				cap, err = capCtx.Cloud.PollCap(ctx, pending)
+				if err != nil {
+					return &mcp.CallToolResult{
+						IsError: true,
+						Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("approval: %v", err)}},
+					}, nil, nil
+				}
+			}
+			if params.Meta == nil {
+				params.Meta = mcp.Meta{}
+			}
+			params.Meta["mcper_cap"] = cap.Cap
+			params.Meta["mcper_invocation_id"] = invocationID
+			params.Meta["mcper_proxy_url"] = capCtx.ProxyURL
+		}
+		result, err := toolSession.CallTool(ctx, params)
 		if err != nil {
 			return &mcp.CallToolResult{
 				IsError: true,

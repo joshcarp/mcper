@@ -21,6 +21,14 @@ type Credentials struct {
 // DefaultCloudURL is the default mcper-cloud server URL
 const DefaultCloudURL = "https://mcper-9161453686.us-central1.run.app"
 
+// GetCapProxyURL returns the URL of the cap-validated proxy on mcper-cloud
+// (PR 5). Used by the cap-aware HTTP client to route plugin egress through
+// cloud token-injection and audit. v1 mounts the endpoint at /proxy_v2;
+// PR 11 renames it to /proxy.
+func (c *Credentials) GetCapProxyURL() string {
+	return c.CloudURL + "/proxy_v2"
+}
+
 // CredentialsFile is the filename for stored credentials
 const CredentialsFile = "credentials.json"
 
