@@ -9,12 +9,15 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/joshcarp/mcper/pkg/mcper"
 	"github.com/spf13/cobra"
 )
 
 const githubAPIURL = "https://api.github.com/repos/joshcarp/mcper/releases/latest"
+
+var httpClient = &http.Client{Timeout: 5 * time.Second}
 
 // GitHubRelease represents the GitHub releases API response
 type GitHubRelease struct {
@@ -68,7 +71,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 }
 
 func fetchLatestVersion() (string, error) {
-	resp, err := http.Get(githubAPIURL)
+	resp, err := httpClient.Get(githubAPIURL)
 	if err != nil {
 		return "", err
 	}
@@ -130,7 +133,7 @@ func downloadAndInstall(version string) error {
 	downloadURL := fmt.Sprintf("%s/v%s/%s", mcper.GCSBaseURL, version, assetName)
 	fmt.Printf("Downloading mcper v%s for %s...\n", version, platform)
 
-	resp, err := http.Get(downloadURL)
+	resp, err := httpClient.Get(downloadURL)
 	if err != nil {
 		return fmt.Errorf("failed to download: %w", err)
 	}
