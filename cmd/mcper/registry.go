@@ -57,7 +57,7 @@ func init() {
 func fetchPluginsManifest() (*PluginsManifest, error) {
 	pluginsURL := mcper.GCSBaseURL + "/plugins.json"
 
-	resp, err := http.Get(pluginsURL)
+	resp, err := httpClient.Get(pluginsURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch plugins: %w", err)
 	}
