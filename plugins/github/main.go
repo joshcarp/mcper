@@ -28,15 +28,25 @@ const (
 	githubAPIBase = "https://api.github.com"
 )
 
-// GitHubClient handles API communication. PR 7: cap-aware. When _meta on the
-// CallToolRequest carries an mcper cap, requests are routed via the cloud
-// /proxy endpoint with X-MCPER-Cap. Otherwise legacy mode: direct HTTPS with
-// GITHUB_TOKEN (or via MCPER_PROXY_URL for force_legacy_proxy compatibility).
+// GitHubClient handles API communication. PR 7: cap-aware.
+//
+// Three modes, in priority order:
+//   1. Cap mode (CapMode=true): _meta carries a cap; HTTP goes via cloud
+//      /proxy_v2 with X-MCPER-Cap. Cloud injects Authorization. Plugin
+//      MUST NOT set its own auth header.
+//   2. Legacy mcper-proxy mode (LegacyProxy=true): MCPER_PROXY_URL is
+//      set (logged in but cap-proxy off or unavailable). Plugin sends to
+//      <proxy>/api.github.com with Bearer MCPER_AUTH_TOKEN; cloud
+//      /api/forward looks up the user's OAuth token by API key.
+//   3. Direct mode: neither cap nor proxy. Plugin sends to
+//      api.github.com with Bearer GITHUB_TOKEN.
 type GitHubClient struct {
-	Token      string
-	BaseURL    string
-	HTTPClient *http.Client
-	CapMode    bool // true when using cap-aware proxy client (no plugin-side auth header)
+	Token       string // GITHUB_TOKEN (direct mode only)
+	ProxyAuth   string // MCPER_AUTH_TOKEN (legacy proxy mode only)
+	BaseURL     string
+	HTTPClient  *http.Client
+	CapMode     bool
+	LegacyProxy bool
 }
 
 // newGitHubClient builds a per-CallToolRequest client. It first checks _meta
@@ -53,9 +63,6 @@ func newGitHubClient(req *mcp.CallToolRequest) *GitHubClient {
 	tlsTransport.TLSClientConfig.NextProtos = []string{"http/1.1"}
 
 	if info, ok := mcperplugin.CapFromRequest(req); ok {
-		// Cap mode: the helper transport rewrites api.github.com → proxy
-		// and attaches X-MCPER-Cap. The cloud injects Authorization
-		// server-side; the plugin must NOT set any auth header.
 		client := mcperplugin.NewProxyAwareClient(githubAPIHost, info)
 		return &GitHubClient{
 			BaseURL:    githubAPIBase,
@@ -64,20 +71,41 @@ func newGitHubClient(req *mcp.CallToolRequest) *GitHubClient {
 		}
 	}
 
-	// Legacy mode. Honors MCPER_PROXY_URL for force_legacy_proxy paths.
-	base := githubAPIBase
+	// Legacy mode. Two sub-cases: mcper-proxy (logged in, no cap-proxy) or
+	// direct GITHUB_TOKEN.
 	if proxyURL := os.Getenv("MCPER_PROXY_URL"); proxyURL != "" {
-		base = proxyURL + "/api.github.com"
+		return &GitHubClient{
+			ProxyAuth: os.Getenv("MCPER_AUTH_TOKEN"),
+			BaseURL:   proxyURL + "/api.github.com",
+			HTTPClient: &http.Client{
+				Timeout:   30 * time.Second,
+				Transport: tlsTransport,
+			},
+			LegacyProxy: true,
+		}
 	}
 	return &GitHubClient{
 		Token:   os.Getenv("GITHUB_TOKEN"),
-		BaseURL: base,
+		BaseURL: githubAPIBase,
 		HTTPClient: &http.Client{
 			Timeout:   30 * time.Second,
 			Transport: tlsTransport,
 		},
-		CapMode: false,
 	}
+}
+
+// HasAuth reports whether the client has a usable authentication path. In
+// cap mode the cloud supplies the upstream token, so any cap-mode client
+// is considered authenticated. Legacy modes require their respective
+// secrets to be present.
+func (c *GitHubClient) HasAuth() bool {
+	if c.CapMode {
+		return true
+	}
+	if c.LegacyProxy {
+		return c.ProxyAuth != ""
+	}
+	return c.Token != ""
 }
 
 func main() {
@@ -609,8 +637,8 @@ func createIssueHandler(ctx context.Context, req *mcp.CallToolRequest, input Cre
 	args := input
 	client := newGitHubClient(req)
 
-	if client.Token == "" {
-		return errorResult("Token required to create issues"), nil, nil
+	if !client.HasAuth() {
+		return errorResult("Auth required to create issues (mcper login, or set GITHUB_TOKEN)"), nil, nil
 	}
 
 	if args.Owner == "" || args.Repo == "" || args.Title == "" {
@@ -651,8 +679,8 @@ func addIssueCommentHandler(ctx context.Context, req *mcp.CallToolRequest, input
 	args := input
 	client := newGitHubClient(req)
 
-	if client.Token == "" {
-		return errorResult("Token required to add comments"), nil, nil
+	if !client.HasAuth() {
+		return errorResult("Auth required to add comments (mcper login, or set GITHUB_TOKEN)"), nil, nil
 	}
 
 	if args.Owner == "" || args.Repo == "" || args.IssueNumber == 0 || args.Body == "" {
@@ -1143,11 +1171,16 @@ func (c *GitHubClient) makeRequestWithAccept(method, endpoint string, body io.Re
 		return nil, err
 	}
 
-	if !c.CapMode && c.Token != "" {
-		// Legacy direct-HTTPS mode: attach local GITHUB_TOKEN. In cap
-		// mode the cloud /proxy injects Authorization server-side; the
-		// plugin must not set its own Authorization (helper strips it
-		// anyway as defense-in-depth).
+	switch {
+	case c.CapMode:
+		// Cloud /proxy injects Authorization server-side; plugin must
+		// not set its own (helper strips it anyway as defense-in-depth).
+	case c.LegacyProxy && c.ProxyAuth != "":
+		// Legacy mcper-proxy: cloud /api/forward identifies the user
+		// from the mcper API key and looks up their OAuth token.
+		req.Header.Set("Authorization", "Bearer "+c.ProxyAuth)
+	case c.Token != "":
+		// Direct GitHub call with a locally-supplied PAT.
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 	req.Header.Set("Accept", accept)

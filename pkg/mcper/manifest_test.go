@@ -64,6 +64,30 @@ func TestParseManifestV2_GithubFixture(t *testing.T) {
 	}
 }
 
+func TestParseManifestV2_RejectsBadEgress(t *testing.T) {
+	// Each case must be rejected so the cross-repo contract holds.
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"host with userinfo", `{"name":"x","egress":[{"host":"user@host.com"}]}`},
+		{"host with port", `{"name":"x","egress":[{"host":"host.com:443"}]}`},
+		{"uppercase host", `{"name":"x","egress":[{"host":"API.GITHUB.COM"}]}`},
+		{"wildcard host", `{"name":"x","egress":[{"host":"*.github.com"}]}`},
+		{"lowercase method", `{"name":"x","tools":[{"name":"t","egress":[{"host":"a.com","methods":["get"]}]}]}`},
+		{"bogus method", `{"name":"x","tools":[{"name":"t","egress":[{"host":"a.com","methods":["FROB"]}]}]}`},
+		{"empty host", `{"name":"x","tools":[{"name":"t","egress":[{"host":""}]}]}`},
+		{"approval_mode ask", `{"name":"x","tools":[{"name":"t","approval_mode":"ask"}]}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := ParseManifestV2([]byte(c.body)); err == nil {
+				t.Errorf("expected error for %q, got nil", c.name)
+			}
+		})
+	}
+}
+
 // repoRoot walks up from cwd until it finds go.mod (works whether tests run
 // from pkg/mcper/ or repo root).
 func repoRoot() (string, error) {

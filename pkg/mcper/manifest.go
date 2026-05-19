@@ -53,6 +53,9 @@ type ToolDecl struct {
 
 // ParseManifestV2 deserialises raw manifest bytes into PluginInfoV2.
 // Rejects approval_mode="ask" (reserved for future deferred-approval flow).
+// Applies the same egress validity rules as mcper-cloud's ParseManifest so
+// the cross-repo contract is symmetric — a manifest that parses cleanly on
+// the CLI side also parses cleanly on the cloud side (and vice versa).
 func ParseManifestV2(raw []byte) (*PluginInfoV2, error) {
 	var pi PluginInfoV2
 	dec := json.NewDecoder(strings.NewReader(string(raw)))
@@ -62,6 +65,11 @@ func ParseManifestV2(raw []byte) (*PluginInfoV2, error) {
 	}
 	if pi.Name == "" {
 		return nil, fmt.Errorf("manifest: missing name")
+	}
+	for i, e := range pi.Egress {
+		if err := validateEgress(e); err != nil {
+			return nil, fmt.Errorf("manifest: egress[%d]: %w", i, err)
+		}
 	}
 	for i, t := range pi.Tools {
 		if t.Name == "" {
@@ -74,8 +82,41 @@ func ParseManifestV2(raw []byte) (*PluginInfoV2, error) {
 		default:
 			return nil, fmt.Errorf("manifest: tool %q approval_mode %q invalid", t.Name, t.ApprovalMode)
 		}
+		for j, e := range t.Egress {
+			if err := validateEgress(e); err != nil {
+				return nil, fmt.Errorf("manifest: tool %q egress[%d]: %w", t.Name, j, err)
+			}
+		}
 	}
 	return &pi, nil
+}
+
+// validateEgress mirrors mcper-cloud/pkg/cap/manifest.go:validateEgress.
+// Any drift breaks the cross-repo contract.
+func validateEgress(e EgressDecl) error {
+	if e.Host == "" {
+		return fmt.Errorf("host required")
+	}
+	if strings.Contains(e.Host, "@") {
+		return fmt.Errorf("host must not contain userinfo")
+	}
+	if strings.Contains(e.Host, ":") {
+		return fmt.Errorf("host must not contain port")
+	}
+	if e.Host != strings.ToLower(e.Host) {
+		return fmt.Errorf("host must be lowercase")
+	}
+	if strings.ContainsAny(e.Host, "*?[]{}\\") {
+		return fmt.Errorf("host wildcards not supported in v1")
+	}
+	for _, m := range e.Methods {
+		switch m {
+		case "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS":
+		default:
+			return fmt.Errorf("method %q invalid (uppercase HTTP verbs only)", m)
+		}
+	}
+	return nil
 }
 
 // HashRawManifest returns "sha256:<hex>" of raw manifest bytes. Hash

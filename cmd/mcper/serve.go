@@ -338,6 +338,16 @@ func resolveCapContext(ctx context.Context, pluginName string, plugin mcper.Plug
 		// Local plugins have no canonical manifest URL in v1; skip.
 		return nil
 	}
+	// v1 only supports "latest" plugin URLs in cap mode. Cloud's
+	// GCSManifestRegistry uses a versioned filename pattern
+	// (plugin-<name>-<version>.manifest.json) that the release pipeline
+	// doesn't publish; emitting cap mints with version="v0.6.36" would
+	// reliably 503 manifest_missing. Until both sides agree on a versioned
+	// layout (planned alongside the PR 10/11 rollout), fall back.
+	if parsed.Version != "" && parsed.Version != "latest" {
+		log.Printf("cap-proxy: %s pinned to version %q; cap-proxy only supports 'latest' in v1, falling back", pluginName, parsed.Version)
+		return nil
+	}
 	manifestURL := parsed.ManifestURL()
 	if manifestURL == "" {
 		return nil
@@ -347,11 +357,21 @@ func resolveCapContext(ctx context.Context, pluginName string, plugin mcper.Plug
 		log.Printf("cap-proxy: %s manifest fetch failed (%v); falling back to legacy", pluginName, err)
 		return nil
 	}
-	log.Printf("cap-proxy: %s enabled (manifest %s, version %s)", pluginName, fetched.Hash, fetched.Manifest.Version)
+	// plugin_version sent to cap-mint MUST be the URL-path version (e.g.
+	// "latest", "v0.6.36"), not the manifest body's `"version": "..."`
+	// field. Cloud's GCSManifestRegistry derives the manifest URL from
+	// (plugin, plugin_version); only the URL-path version matches the GCS
+	// layout the release pipeline publishes.
+	pluginVersion := parsed.Version
+	if pluginVersion == "" {
+		pluginVersion = "latest"
+	}
+	log.Printf("cap-proxy: %s enabled (manifest %s, plugin_version %s, body_version %s)",
+		pluginName, fetched.Hash, pluginVersion, fetched.Manifest.Version)
 	return &CapContext{
 		Cloud:         mcper.NewCloudClient(creds),
 		Manifest:      fetched.Manifest,
-		PluginVersion: fetched.Manifest.Version,
+		PluginVersion: pluginVersion,
 		ManifestHash:  fetched.Hash,
 		ProxyURL:      creds.GetCapProxyURL(),
 	}
@@ -369,15 +389,24 @@ func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Ser
 	// over.
 	capCtx := resolveCapContext(ctx, pluginName, plugin, parsed, creds)
 
-	// Resolve environment variables: plugin.Env maps WASM env name -> host env name
+	// Resolve environment variables: plugin.Env maps WASM env name -> host env name.
+	// In cap mode we skip ALL plugin.Env entries — the cloud /proxy injects
+	// upstream credentials, so the plugin should not see any local secrets.
+	// Leaving GITHUB_TOKEN (or similar) in the plugin process would let a
+	// rogue/buggy plugin bypass the cap path entirely.
 	var envVars []string
-	for wasmEnvName, hostEnvName := range plugin.Env {
-		value := os.Getenv(hostEnvName)
-		if value != "" {
-			envVars = append(envVars, fmt.Sprintf("%s=%s", wasmEnvName, value))
-			log.Printf("Passing env var %s to WASM module", wasmEnvName)
-		} else {
-			log.Printf("Warning: env var %s (mapped from %s) is empty", wasmEnvName, hostEnvName)
+	if capCtx != nil && len(plugin.Env) > 0 {
+		log.Printf("cap-proxy: %s skipping %d plugin.Env entries (cloud injects credentials)", pluginName, len(plugin.Env))
+	}
+	if capCtx == nil {
+		for wasmEnvName, hostEnvName := range plugin.Env {
+			value := os.Getenv(hostEnvName)
+			if value != "" {
+				envVars = append(envVars, fmt.Sprintf("%s=%s", wasmEnvName, value))
+				log.Printf("Passing env var %s to WASM module", wasmEnvName)
+			} else {
+				log.Printf("Warning: env var %s (mapped from %s) is empty", wasmEnvName, hostEnvName)
+			}
 		}
 	}
 
