@@ -17,80 +17,67 @@ import (
 	"time"
 
 	_ "github.com/breml/rootcerts"
+	"github.com/joshcarp/mcper/pkg/mcperplugin"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	_ "github.com/stealthrocket/net/http"
 	_ "github.com/stealthrocket/net/wasip1"
 )
 
 const (
-	defaultGitHubAPIBaseURL = "https://api.github.com"
+	githubAPIHost = "api.github.com"
+	githubAPIBase = "https://api.github.com"
 )
 
-// getAPIBaseURL returns the API base URL, checking for proxy configuration
-// If MCPER_PROXY_URL is set, it uses the proxy for token injection (e.g., https://mcper.io/api/forward/api.github.com)
-// Otherwise uses the default GitHub API URL
-func getAPIBaseURL() string {
-	if proxyURL := os.Getenv("MCPER_PROXY_URL"); proxyURL != "" {
-		// MCPER_PROXY_URL should be like "https://mcper.io/api/forward"
-		// We append the target host to form the full proxy URL
-		return proxyURL + "/api.github.com"
-	}
-	return defaultGitHubAPIBaseURL
-}
-
-// GitHubClient handles API communication
+// GitHubClient handles API communication. PR 7: cap-aware. When _meta on the
+// CallToolRequest carries an mcper cap, requests are routed via the cloud
+// /proxy endpoint with X-MCPER-Cap. Otherwise legacy mode: direct HTTPS with
+// GITHUB_TOKEN (or via MCPER_PROXY_URL for force_legacy_proxy compatibility).
 type GitHubClient struct {
 	Token      string
-	ProxyAuth  string // Auth token for the mcper proxy
-	UserID     string // User ID for cloud-hosted proxy authentication
 	BaseURL    string
-	UseProxy   bool
 	HTTPClient *http.Client
+	CapMode    bool // true when using cap-aware proxy client (no plugin-side auth header)
 }
 
-// NewGitHubClient creates a new GitHub API client
-// Uses GITHUB_TOKEN from environment if available
-// Uses MCPER_PROXY_URL for token injection when running via mcper-cloud
-func NewGitHubClient() *GitHubClient {
-	return NewGitHubClientWithUserID("")
-}
-
-// NewGitHubClientWithUserID creates a new GitHub API client with a specific user ID
-// The userID is passed to the proxy for OAuth token injection in cloud-hosted mode
-func NewGitHubClientWithUserID(userID string) *GitHubClient {
-	proxyURL := os.Getenv("MCPER_PROXY_URL")
-	useProxy := proxyURL != ""
-
-	// Force HTTP/1.1 - WASM runtime doesn't support HTTP/2 parsing
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSNextProto = make(map[string]func(authority string, c *tls.Conn) http.RoundTripper)
-	if transport.TLSClientConfig == nil {
-		transport.TLSClientConfig = &tls.Config{}
+// newGitHubClient builds a per-CallToolRequest client. It first checks _meta
+// for cap context; if present, returns a proxy-aware client whose RoundTripper
+// rewrites api.github.com → <cloud>/proxy_v2/api.github.com + X-MCPER-Cap.
+// If absent, falls back to legacy behavior (direct HTTPS or MCPER_PROXY_URL).
+func newGitHubClient(req *mcp.CallToolRequest) *GitHubClient {
+	// Force HTTP/1.1 — WASM runtime doesn't support HTTP/2 parsing.
+	tlsTransport := http.DefaultTransport.(*http.Transport).Clone()
+	tlsTransport.TLSNextProto = make(map[string]func(authority string, c *tls.Conn) http.RoundTripper)
+	if tlsTransport.TLSClientConfig == nil {
+		tlsTransport.TLSClientConfig = &tls.Config{}
 	}
-	transport.TLSClientConfig.NextProtos = []string{"http/1.1"}
+	tlsTransport.TLSClientConfig.NextProtos = []string{"http/1.1"}
 
+	if info, ok := mcperplugin.CapFromRequest(req); ok {
+		// Cap mode: the helper transport rewrites api.github.com → proxy
+		// and attaches X-MCPER-Cap. The cloud injects Authorization
+		// server-side; the plugin must NOT set any auth header.
+		client := mcperplugin.NewProxyAwareClient(githubAPIHost, info)
+		return &GitHubClient{
+			BaseURL:    githubAPIBase,
+			HTTPClient: client,
+			CapMode:    true,
+		}
+	}
+
+	// Legacy mode. Honors MCPER_PROXY_URL for force_legacy_proxy paths.
+	base := githubAPIBase
+	if proxyURL := os.Getenv("MCPER_PROXY_URL"); proxyURL != "" {
+		base = proxyURL + "/api.github.com"
+	}
 	return &GitHubClient{
-		Token:     os.Getenv("GITHUB_TOKEN"),
-		ProxyAuth: os.Getenv("MCPER_AUTH_TOKEN"), // Auth token for proxy requests
-		UserID:    userID,
-		BaseURL:   getAPIBaseURL(),
-		UseProxy:  useProxy,
+		Token:   os.Getenv("GITHUB_TOKEN"),
+		BaseURL: base,
 		HTTPClient: &http.Client{
 			Timeout:   30 * time.Second,
-			Transport: transport,
+			Transport: tlsTransport,
 		},
+		CapMode: false,
 	}
-}
-
-// getUserIDFromMeta extracts the userID from MCP call metadata
-func getUserIDFromMeta(meta map[string]any) string {
-	if meta == nil {
-		return ""
-	}
-	if userID, ok := meta["userID"].(string); ok {
-		return userID
-	}
-	return ""
 }
 
 func main() {
@@ -277,7 +264,7 @@ type ListCommitsParams struct {
 
 func listReposHandler(ctx context.Context, req *mcp.CallToolRequest, input ListReposParams) (*mcp.CallToolResult, any, error) {
 	args := input
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
+	client := newGitHubClient(req)
 
 	var endpoint string
 	if args.Org != "" {
@@ -346,7 +333,7 @@ func listReposHandler(ctx context.Context, req *mcp.CallToolRequest, input ListR
 
 func getRepoHandler(ctx context.Context, req *mcp.CallToolRequest, input GetRepoParams) (*mcp.CallToolResult, any, error) {
 	args := input
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
+	client := newGitHubClient(req)
 
 	if args.Owner == "" || args.Repo == "" {
 		return errorResult("owner and repo are required"), nil, nil
@@ -406,7 +393,7 @@ func getRepoHandler(ctx context.Context, req *mcp.CallToolRequest, input GetRepo
 
 func searchReposHandler(ctx context.Context, req *mcp.CallToolRequest, input SearchReposParams) (*mcp.CallToolResult, any, error) {
 	args := input
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
+	client := newGitHubClient(req)
 
 	if args.Query == "" {
 		return errorResult("query is required"), nil, nil
@@ -462,7 +449,7 @@ func searchReposHandler(ctx context.Context, req *mcp.CallToolRequest, input Sea
 
 func listIssuesHandler(ctx context.Context, req *mcp.CallToolRequest, input ListIssuesParams) (*mcp.CallToolResult, any, error) {
 	args := input
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
+	client := newGitHubClient(req)
 
 	if args.Owner == "" || args.Repo == "" {
 		return errorResult("owner and repo are required"), nil, nil
@@ -538,7 +525,7 @@ func listIssuesHandler(ctx context.Context, req *mcp.CallToolRequest, input List
 
 func getIssueHandler(ctx context.Context, req *mcp.CallToolRequest, input GetIssueParams) (*mcp.CallToolResult, any, error) {
 	args := input
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
+	client := newGitHubClient(req)
 
 	if args.Owner == "" || args.Repo == "" || args.IssueNumber == 0 {
 		return errorResult("owner, repo, and issue_number are required"), nil, nil
@@ -620,7 +607,7 @@ func getIssueHandler(ctx context.Context, req *mcp.CallToolRequest, input GetIss
 
 func createIssueHandler(ctx context.Context, req *mcp.CallToolRequest, input CreateIssueParams) (*mcp.CallToolResult, any, error) {
 	args := input
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
+	client := newGitHubClient(req)
 
 	if client.Token == "" {
 		return errorResult("Token required to create issues"), nil, nil
@@ -662,7 +649,7 @@ func createIssueHandler(ctx context.Context, req *mcp.CallToolRequest, input Cre
 
 func addIssueCommentHandler(ctx context.Context, req *mcp.CallToolRequest, input AddCommentParams) (*mcp.CallToolResult, any, error) {
 	args := input
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
+	client := newGitHubClient(req)
 
 	if client.Token == "" {
 		return errorResult("Token required to add comments"), nil, nil
@@ -696,7 +683,7 @@ func addIssueCommentHandler(ctx context.Context, req *mcp.CallToolRequest, input
 
 func listPRsHandler(ctx context.Context, req *mcp.CallToolRequest, input ListPRsParams) (*mcp.CallToolResult, any, error) {
 	args := input
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
+	client := newGitHubClient(req)
 
 	if args.Owner == "" || args.Repo == "" {
 		return errorResult("owner and repo are required"), nil, nil
@@ -765,7 +752,7 @@ func listPRsHandler(ctx context.Context, req *mcp.CallToolRequest, input ListPRs
 
 func getPRHandler(ctx context.Context, req *mcp.CallToolRequest, input GetPRParams) (*mcp.CallToolResult, any, error) {
 	args := input
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
+	client := newGitHubClient(req)
 
 	if args.Owner == "" || args.Repo == "" || args.PRNumber == 0 {
 		return errorResult("owner, repo, and pr_number are required"), nil, nil
@@ -851,7 +838,7 @@ func getPRHandler(ctx context.Context, req *mcp.CallToolRequest, input GetPRPara
 
 func getPRDiffHandler(ctx context.Context, req *mcp.CallToolRequest, input GetPRParams) (*mcp.CallToolResult, any, error) {
 	args := input
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
+	client := newGitHubClient(req)
 
 	if args.Owner == "" || args.Repo == "" || args.PRNumber == 0 {
 		return errorResult("owner, repo, and pr_number are required"), nil, nil
@@ -869,7 +856,7 @@ func getPRDiffHandler(ctx context.Context, req *mcp.CallToolRequest, input GetPR
 
 func listPRFilesHandler(ctx context.Context, req *mcp.CallToolRequest, input GetPRParams) (*mcp.CallToolResult, any, error) {
 	args := input
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
+	client := newGitHubClient(req)
 
 	if args.Owner == "" || args.Repo == "" || args.PRNumber == 0 {
 		return errorResult("owner, repo, and pr_number are required"), nil, nil
@@ -915,7 +902,7 @@ func listPRFilesHandler(ctx context.Context, req *mcp.CallToolRequest, input Get
 
 func getFileHandler(ctx context.Context, req *mcp.CallToolRequest, input GetFileParams) (*mcp.CallToolResult, any, error) {
 	args := input
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
+	client := newGitHubClient(req)
 
 	if args.Owner == "" || args.Repo == "" || args.Path == "" {
 		return errorResult("owner, repo, and path are required"), nil, nil
@@ -972,7 +959,7 @@ func getFileHandler(ctx context.Context, req *mcp.CallToolRequest, input GetFile
 
 func searchCodeHandler(ctx context.Context, req *mcp.CallToolRequest, input SearchCodeParams) (*mcp.CallToolResult, any, error) {
 	args := input
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
+	client := newGitHubClient(req)
 
 	if args.Query == "" {
 		return errorResult("query is required (e.g., 'addClass repo:jquery/jquery')"), nil, nil
@@ -1024,7 +1011,7 @@ func searchCodeHandler(ctx context.Context, req *mcp.CallToolRequest, input Sear
 
 func getUserHandler(ctx context.Context, req *mcp.CallToolRequest, input GetUserParams) (*mcp.CallToolResult, any, error) {
 	args := input
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
+	client := newGitHubClient(req)
 
 	if args.Username == "" {
 		return errorResult("username is required"), nil, nil
@@ -1086,7 +1073,7 @@ func getUserHandler(ctx context.Context, req *mcp.CallToolRequest, input GetUser
 
 func listCommitsHandler(ctx context.Context, req *mcp.CallToolRequest, input ListCommitsParams) (*mcp.CallToolResult, any, error) {
 	args := input
-	client := NewGitHubClientWithUserID(getUserIDFromMeta(req.Params.Meta))
+	client := newGitHubClient(req)
 
 	if args.Owner == "" || args.Repo == "" {
 		return errorResult("owner and repo are required"), nil, nil
@@ -1156,17 +1143,11 @@ func (c *GitHubClient) makeRequestWithAccept(method, endpoint string, body io.Re
 		return nil, err
 	}
 
-	if c.UseProxy {
-		// When using mcper proxy, pass user ID for OAuth token injection
-		if c.UserID != "" {
-			req.Header.Set("X-MCPer-Internal-User-ID", c.UserID)
-		}
-		if c.ProxyAuth != "" {
-			// Also pass API key for additional auth if available
-			req.Header.Set("Authorization", "Bearer "+c.ProxyAuth)
-		}
-	} else if c.Token != "" {
-		// Direct API call with local GitHub token
+	if !c.CapMode && c.Token != "" {
+		// Legacy direct-HTTPS mode: attach local GITHUB_TOKEN. In cap
+		// mode the cloud /proxy injects Authorization server-side; the
+		// plugin must not set its own Authorization (helper strips it
+		// anyway as defense-in-depth).
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 	req.Header.Set("Accept", accept)

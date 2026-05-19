@@ -8,11 +8,15 @@
 package mcper
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
+	"time"
 )
 
 // PluginInfoV2 mirrors mcper-cloud/pkg/cap.PluginInfoV2. Both parsers
@@ -91,4 +95,49 @@ func (pi *PluginInfoV2) FindTool(toolName string) *ToolDecl {
 		}
 	}
 	return nil
+}
+
+// FetchedManifest bundles a parsed PluginInfoV2 with the raw bytes that were
+// hashed. The cap-proxy path needs all three (parsed for policy lookup, raw
+// for cross-repo agreement, hash for the cap-mint request).
+type FetchedManifest struct {
+	Manifest *PluginInfoV2
+	Raw      []byte
+	Hash     string
+}
+
+// FetchManifestV2 GETs the plugin's manifest.json from `url`, parses it, and
+// returns the bundle. Returns nil on any failure (404, network, parse) so
+// callers can fall back to legacy without distinguishing causes — failure
+// here just means cap-proxy isn't yet available for this plugin.
+func FetchManifestV2(ctx context.Context, url string) (*FetchedManifest, error) {
+	if url == "" {
+		return nil, fmt.Errorf("manifest: empty url")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("manifest fetch: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("manifest fetch: HTTP %d", resp.StatusCode)
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // cap at 1 MiB
+	if err != nil {
+		return nil, fmt.Errorf("manifest read: %w", err)
+	}
+	parsed, err := ParseManifestV2(raw)
+	if err != nil {
+		return nil, fmt.Errorf("manifest parse: %w", err)
+	}
+	return &FetchedManifest{
+		Manifest: parsed,
+		Raw:      raw,
+		Hash:     HashRawManifest(raw),
+	}, nil
 }

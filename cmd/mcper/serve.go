@@ -181,7 +181,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		case mcper.PluginTypeLocal:
 			// Local WASM file
 			log.Printf("Loading local WASM: %s", plugin.Source)
-			session, err := loadLocalWASM(ctx, wasmHost, mcpServer, name, plugin, proxyURL, apiKey)
+			session, err := loadLocalWASM(ctx, wasmHost, mcpServer, name, plugin, parsed, creds, proxyURL, apiKey)
 			if err != nil {
 				log.Printf("ERROR: failed to load local WASM %s: %v", plugin.Source, err)
 				return fmt.Errorf("failed to load local WASM %s: %w", plugin.Source, err)
@@ -192,7 +192,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		case mcper.PluginTypeWASM:
 			// Remote WASM - check cache first
 			log.Printf("Loading remote WASM: %s", plugin.Source)
-			session, err := loadRemoteWASM(ctx, wasmHost, mcpServer, name, plugin, parsed, proxyURL, apiKey)
+			session, err := loadRemoteWASM(ctx, wasmHost, mcpServer, name, plugin, parsed, creds, proxyURL, apiKey)
 			if err != nil {
 				log.Printf("ERROR: failed to load remote WASM %s: %v", plugin.Source, err)
 				return fmt.Errorf("failed to load remote WASM %s: %w", plugin.Source, err)
@@ -225,7 +225,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 }
 
 // loadLocalWASM loads a local WASM file and registers its tools
-func loadLocalWASM(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Server, name string, plugin mcper.PluginConfig, proxyURL, apiKey string) (*mcp.ClientSession, error) {
+func loadLocalWASM(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Server, name string, plugin mcper.PluginConfig, parsed *mcper.ParsedPlugin, creds *mcper.Credentials, proxyURL, apiKey string) (*mcp.ClientSession, error) {
 	// Resolve source path
 	source := plugin.Source
 	if strings.HasPrefix(source, "./") {
@@ -246,11 +246,11 @@ func loadLocalWASM(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Ser
 	pluginName := strings.TrimSuffix(baseName, ".wasm")
 	pluginName = strings.TrimPrefix(pluginName, "plugin-")
 
-	return runWASMModule(ctx, host, server, name, pluginName, wasmBytes, plugin, proxyURL, apiKey)
+	return runWASMModule(ctx, host, server, name, pluginName, wasmBytes, plugin, parsed, creds, proxyURL, apiKey)
 }
 
 // loadRemoteWASM loads a remote WASM file from cache or downloads it
-func loadRemoteWASM(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Server, name string, plugin mcper.PluginConfig, parsed *mcper.ParsedPlugin, proxyURL, apiKey string) (*mcp.ClientSession, error) {
+func loadRemoteWASM(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Server, name string, plugin mcper.PluginConfig, parsed *mcper.ParsedPlugin, creds *mcper.Credentials, proxyURL, apiKey string) (*mcp.ClientSession, error) {
 	// Check cache first
 	entry, err := mcper.GetCacheEntry(parsed)
 	if err != nil {
@@ -313,15 +313,61 @@ func loadRemoteWASM(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Se
 		pluginName = name // fallback to internal name
 	}
 
-	return runWASMModule(ctx, host, server, name, pluginName, wasmBytes, plugin, proxyURL, apiKey)
+	return runWASMModule(ctx, host, server, name, pluginName, wasmBytes, plugin, parsed, creds, proxyURL, apiKey)
+}
+
+// resolveCapContext decides whether this plugin should run in cap-proxy mode.
+// Returns a CapContext on success, or nil to indicate legacy mode. The
+// MCPER_USE_CAP_PROXY env gate keeps default behaviour unchanged; per-plugin
+// force_legacy_proxy provides emergency rollback per the plan. Manifest fetch
+// failure (404, parse error, etc.) is non-fatal — the plugin falls back to
+// legacy proxy.
+func resolveCapContext(ctx context.Context, pluginName string, plugin mcper.PluginConfig, parsed *mcper.ParsedPlugin, creds *mcper.Credentials) *CapContext {
+	if os.Getenv("MCPER_USE_CAP_PROXY") != "true" {
+		return nil
+	}
+	if plugin.ForceLegacyProxy {
+		log.Printf("cap-proxy: %s pinned to legacy via force_legacy_proxy", pluginName)
+		return nil
+	}
+	if creds == nil || !creds.IsValid() {
+		log.Printf("cap-proxy: %s skipped (not logged in)", pluginName)
+		return nil
+	}
+	if parsed == nil || parsed.Type != mcper.PluginTypeWASM {
+		// Local plugins have no canonical manifest URL in v1; skip.
+		return nil
+	}
+	manifestURL := parsed.ManifestURL()
+	if manifestURL == "" {
+		return nil
+	}
+	fetched, err := mcper.FetchManifestV2(ctx, manifestURL)
+	if err != nil {
+		log.Printf("cap-proxy: %s manifest fetch failed (%v); falling back to legacy", pluginName, err)
+		return nil
+	}
+	log.Printf("cap-proxy: %s enabled (manifest %s, version %s)", pluginName, fetched.Hash, fetched.Manifest.Version)
+	return &CapContext{
+		Cloud:         mcper.NewCloudClient(creds),
+		Manifest:      fetched.Manifest,
+		PluginVersion: fetched.Manifest.Version,
+		ManifestHash:  fetched.Hash,
+		ProxyURL:      creds.GetCapProxyURL(),
+	}
 }
 
 // runWASMModule loads and runs a WASM module, registering its tools with the MCP server
-func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Server, name string, pluginName string, wasmBytes []byte, plugin mcper.PluginConfig, proxyURL, apiKey string) (*mcp.ClientSession, error) {
+func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Server, name string, pluginName string, wasmBytes []byte, plugin mcper.PluginConfig, parsed *mcper.ParsedPlugin, creds *mcper.Credentials, proxyURL, apiKey string) (*mcp.ClientSession, error) {
 	// Load the module
 	if err := host.LoadModule(ctx, name, wasmBytes); err != nil {
 		return nil, fmt.Errorf("failed to load WASM module: %w", err)
 	}
+
+	// Decide cap-proxy vs legacy before building env vars — cap mode skips
+	// HTTP_PROXY / MCPER_PROXY_URL so plugins don't have two paths to fight
+	// over.
+	capCtx := resolveCapContext(ctx, pluginName, plugin, parsed, creds)
 
 	// Resolve environment variables: plugin.Env maps WASM env name -> host env name
 	var envVars []string
@@ -335,8 +381,10 @@ func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Ser
 		}
 	}
 
-	// Add proxy environment variables if user is logged in
-	if proxyURL != "" {
+	// Legacy proxy env vars only when NOT in cap mode. Cap-mode plugins
+	// receive auth via _meta + /proxy header injection; legacy env vars
+	// would let a plugin bypass the cap path.
+	if capCtx == nil && proxyURL != "" {
 		// Standard proxy vars (for HTTP clients that support them)
 		envVars = append(envVars, fmt.Sprintf("HTTP_PROXY=%s", proxyURL))
 		envVars = append(envVars, fmt.Sprintf("HTTPS_PROXY=%s", proxyURL))
@@ -345,7 +393,7 @@ func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Ser
 		if apiKey != "" {
 			envVars = append(envVars, fmt.Sprintf("MCPER_AUTH_TOKEN=%s", apiKey))
 		}
-		log.Printf("Setting proxy for WASM module: %s", proxyURL)
+		log.Printf("Setting legacy proxy for WASM module: %s", proxyURL)
 	}
 
 	// Run the module with environment variables
@@ -375,7 +423,7 @@ func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Ser
 		namespace = namespaceCloud
 	}
 	for _, tool := range tools.Tools {
-		registerForwardedTool(server, session, namespace, pluginName, "Tool call failed", tool, nil)
+		registerForwardedTool(server, session, namespace, pluginName, "Tool call failed", tool, capCtx)
 	}
 
 	return session, nil

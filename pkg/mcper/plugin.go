@@ -130,3 +130,14 @@ func (p *ParsedPlugin) RegistryURL() string {
 	// Already have the full URL in RawURL
 	return p.RawURL
 }
+
+// ManifestURL returns the URL of the plugin's v2 manifest JSON. Convention:
+// alongside plugin-<name>.wasm there is a plugin-<name>.manifest.json. Used
+// by PR 7+ cap-proxy path; cloud fetches the same URL so both sides hash
+// identical raw bytes.
+func (p *ParsedPlugin) ManifestURL() string {
+	if p.Type != PluginTypeWASM {
+		return ""
+	}
+	return strings.TrimSuffix(p.RawURL, ".wasm") + ".manifest.json"
+}

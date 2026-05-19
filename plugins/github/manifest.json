@@ -1,0 +1,135 @@
+{
+  "name": "github",
+  "description": "GitHub API integration - manage repos, issues, PRs, and more",
+  "version": "0.6.36",
+  "author": "mcper",
+  "oauth_provider": "github",
+  "egress": [
+    {"host": "api.github.com"}
+  ],
+  "tools": [
+    {
+      "name": "github_list_repos",
+      "description": "List repositories for the authenticated user or a specific user/org",
+      "approval_mode": "allow",
+      "egress": [
+        {"host": "api.github.com", "path_prefix": "/user/repos", "methods": ["GET"]},
+        {"host": "api.github.com", "path_prefix": "/users/", "methods": ["GET"]},
+        {"host": "api.github.com", "path_prefix": "/orgs/", "methods": ["GET"]}
+      ]
+    },
+    {
+      "name": "github_get_repo",
+      "description": "Get details about a specific repository",
+      "approval_mode": "allow",
+      "egress": [
+        {"host": "api.github.com", "path_prefix": "/repos/", "methods": ["GET"]}
+      ]
+    },
+    {
+      "name": "github_search_repos",
+      "description": "Search for repositories on GitHub",
+      "approval_mode": "allow",
+      "egress": [
+        {"host": "api.github.com", "path_prefix": "/search/repositories", "methods": ["GET"]}
+      ]
+    },
+    {
+      "name": "github_list_issues",
+      "description": "List issues for a repository",
+      "approval_mode": "allow",
+      "egress": [
+        {"host": "api.github.com", "path_prefix": "/repos/", "methods": ["GET"]}
+      ]
+    },
+    {
+      "name": "github_get_issue",
+      "description": "Get details about a specific issue",
+      "approval_mode": "allow",
+      "egress": [
+        {"host": "api.github.com", "path_prefix": "/repos/", "methods": ["GET"]}
+      ]
+    },
+    {
+      "name": "github_create_issue",
+      "description": "Create a new issue in a repository",
+      "approval_mode": "pre",
+      "egress": [
+        {"host": "api.github.com", "path_prefix": "/repos/", "methods": ["POST"]}
+      ]
+    },
+    {
+      "name": "github_add_issue_comment",
+      "description": "Add a comment to an issue or pull request",
+      "approval_mode": "pre",
+      "egress": [
+        {"host": "api.github.com", "path_prefix": "/repos/", "methods": ["POST"]}
+      ]
+    },
+    {
+      "name": "github_list_prs",
+      "description": "List pull requests for a repository",
+      "approval_mode": "allow",
+      "egress": [
+        {"host": "api.github.com", "path_prefix": "/repos/", "methods": ["GET"]}
+      ]
+    },
+    {
+      "name": "github_get_pr",
+      "description": "Get details about a specific pull request",
+      "approval_mode": "allow",
+      "egress": [
+        {"host": "api.github.com", "path_prefix": "/repos/", "methods": ["GET"]}
+      ]
+    },
+    {
+      "name": "github_get_pr_diff",
+      "description": "Get the diff for a pull request",
+      "approval_mode": "allow",
+      "egress": [
+        {"host": "api.github.com", "path_prefix": "/repos/", "methods": ["GET"]}
+      ]
+    },
+    {
+      "name": "github_list_pr_files",
+      "description": "List files changed in a pull request",
+      "approval_mode": "allow",
+      "egress": [
+        {"host": "api.github.com", "path_prefix": "/repos/", "methods": ["GET"]}
+      ]
+    },
+    {
+      "name": "github_get_file",
+      "description": "Get contents of a file from a repository",
+      "approval_mode": "allow",
+      "egress": [
+        {"host": "api.github.com", "path_prefix": "/repos/", "methods": ["GET"]}
+      ]
+    },
+    {
+      "name": "github_search_code",
+      "description": "Search for code across GitHub repositories",
+      "approval_mode": "allow",
+      "egress": [
+        {"host": "api.github.com", "path_prefix": "/search/code", "methods": ["GET"]}
+      ]
+    },
+    {
+      "name": "github_get_user",
+      "description": "Get information about a GitHub user",
+      "approval_mode": "allow",
+      "egress": [
+        {"host": "api.github.com", "path_prefix": "/user", "methods": ["GET"]},
+        {"host": "api.github.com", "path_prefix": "/users/", "methods": ["GET"]}
+      ]
+    },
+    {
+      "name": "github_list_commits",
+      "description": "List commits for a repository",
+      "approval_mode": "allow",
+      "egress": [
+        {"host": "api.github.com", "path_prefix": "/repos/", "methods": ["GET"]}
+      ]
+    }
+  ]
+}

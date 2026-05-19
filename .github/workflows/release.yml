@@ -84,11 +84,26 @@ jobs:
           GOOS=wasip1 GOARCH=wasm go build -o wasm/plugin-azuredevops.wasm ./plugins/azuredevops/
           GOOS=wasip1 GOARCH=wasm go build -o wasm/plugin-currency.wasm ./plugins/currency/
 
+      - name: Bundle plugin manifests
+        run: |
+          # PR 7: ship plugin-<name>.manifest.json alongside .wasm so cap-mint
+          # can fetch + hash identical raw bytes on both sides.
+          for plugin_dir in plugins/*/; do
+            name=$(basename "$plugin_dir")
+            manifest="$plugin_dir/manifest.json"
+            if [ -f "$manifest" ]; then
+              cp "$manifest" "wasm/plugin-$name.manifest.json"
+              echo "bundled manifest for $name"
+            fi
+          done
+
       - name: Upload plugin artifacts
         uses: actions/upload-artifact@v4
         with:
           name: wasm-plugins
-          path: wasm/*.wasm
+          path: |
+            wasm/*.wasm
+            wasm/*.manifest.json
 
   release:
     needs: [build-cli, build-plugins]
@@ -133,6 +148,14 @@ jobs:
 
           # Upload WASM plugins
           for file in dist/plugin-*.wasm; do
+            gsutil cp "$file" "gs://$GCS_BUCKET/$VERSION/$(basename $file)"
+            gsutil cp "$file" "gs://$GCS_BUCKET/latest/$(basename $file)"
+          done
+
+          # Upload plugin manifests (PR 7+: cap-mint contract — must be the
+          # exact bytes both repos hash; do NOT re-serialize anywhere).
+          for file in dist/plugin-*.manifest.json; do
+            [ -f "$file" ] || continue
             gsutil cp "$file" "gs://$GCS_BUCKET/$VERSION/$(basename $file)"
             gsutil cp "$file" "gs://$GCS_BUCKET/latest/$(basename $file)"
           done
