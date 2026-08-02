@@ -8,7 +8,7 @@ mcper lets you add MCP (Model Context Protocol) tools to any project with a sing
 
 ```bash
 # Install mcper
-curl -sSL https://storage.googleapis.com/mcper-releases/install.sh | sh
+curl -sSL https://joshuas-mac-mini.tail49f94c.ts.net:8443/releases/install.sh | sh
 
 # Initialize in your project
 mcper init

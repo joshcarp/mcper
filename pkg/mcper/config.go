@@ -16,7 +16,7 @@ type PluginConfig struct {
 	Source           string            `json:"source"`
 	Env              map[string]string `json:"env,omitempty"`
 	Permissions      *Permissions      `json:"permissions,omitempty"`
-	IsCloud          bool              `json:"-"` // Internal: true for plugins fetched from mcper-cloud
+	IsCloud          bool              `json:"-"`                            // Internal: true for plugins fetched from mcper-cloud
 	ForceLegacyProxy bool              `json:"force_legacy_proxy,omitempty"` // PR 7: per-plugin emergency rollback to /api/forward
 }
 

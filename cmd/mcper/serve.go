@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/joshcarp/mcper/pkg/mcper"
-	"github.com/joshcarp/mcper/pkg/wasmhost"
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/google/uuid"
+	"github.com/joshcarp/mcper/pkg/mcper"
+	"github.com/joshcarp/mcper/pkg/wasmhost"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 )
@@ -432,7 +432,7 @@ func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Ser
 	}
 
 	// Create MCP client for the WASM module
-	wasmClient := mcp.NewClient(&mcp.Implementation{Name: "WASM-"+name, Version: "1.0.0"}, nil)
+	wasmClient := mcp.NewClient(&mcp.Implementation{Name: "WASM-" + name, Version: "1.0.0"}, nil)
 	transport := mcp.NewIOTransport(&wasmConn{read: read, write: write})
 
 	session, err := wasmClient.Connect(ctx, transport, nil)
@@ -460,7 +460,7 @@ func runWASMModule(ctx context.Context, host *wasmhost.WasmHost, server *mcp.Ser
 
 // loadHTTPPlugin connects to an HTTP MCP server and forwards its tools
 func loadHTTPPlugin(ctx context.Context, server *mcp.Server, name string, plugin mcper.PluginConfig) (*mcp.ClientSession, error) {
-	httpClient := mcp.NewClient(&mcp.Implementation{Name: "HTTP-"+name, Version: "1.0.0"}, nil)
+	httpClient := mcp.NewClient(&mcp.Implementation{Name: "HTTP-" + name, Version: "1.0.0"}, nil)
 	transport := &mcp.StreamableClientTransport{Endpoint: plugin.Source}
 
 	session, err := httpClient.Connect(ctx, transport, nil)
@@ -507,7 +507,7 @@ func loadCloudPlugin(ctx context.Context, server *mcp.Server, name string, plugi
 	}
 
 	// Create MCP client for the cloud server
-	cloudClient := mcp.NewClient(&mcp.Implementation{Name: "Cloud-"+name, Version: "1.0.0"}, nil)
+	cloudClient := mcp.NewClient(&mcp.Implementation{Name: "Cloud-" + name, Version: "1.0.0"}, nil)
 	transport := &mcp.StreamableClientTransport{
 		Endpoint:   mcpEndpointURL,
 		HTTPClient: httpClient,

@@ -31,15 +31,15 @@ const (
 // GitHubClient handles API communication. PR 7: cap-aware.
 //
 // Three modes, in priority order:
-//   1. Cap mode (CapMode=true): _meta carries a cap; HTTP goes via cloud
-//      /proxy_v2 with X-MCPER-Cap. Cloud injects Authorization. Plugin
-//      MUST NOT set its own auth header.
-//   2. Legacy mcper-proxy mode (LegacyProxy=true): MCPER_PROXY_URL is
-//      set (logged in but cap-proxy off or unavailable). Plugin sends to
-//      <proxy>/api.github.com with Bearer MCPER_AUTH_TOKEN; cloud
-//      /api/forward looks up the user's OAuth token by API key.
-//   3. Direct mode: neither cap nor proxy. Plugin sends to
-//      api.github.com with Bearer GITHUB_TOKEN.
+//  1. Cap mode (CapMode=true): _meta carries a cap; HTTP goes via cloud
+//     /proxy_v2 with X-MCPER-Cap. Cloud injects Authorization. Plugin
+//     MUST NOT set its own auth header.
+//  2. Legacy mcper-proxy mode (LegacyProxy=true): MCPER_PROXY_URL is
+//     set (logged in but cap-proxy off or unavailable). Plugin sends to
+//     <proxy>/api.github.com with Bearer MCPER_AUTH_TOKEN; cloud
+//     /api/forward looks up the user's OAuth token by API key.
+//  3. Direct mode: neither cap nor proxy. Plugin sends to
+//     api.github.com with Bearer GITHUB_TOKEN.
 type GitHubClient struct {
 	Token       string // GITHUB_TOKEN (direct mode only)
 	ProxyAuth   string // MCPER_AUTH_TOKEN (legacy proxy mode only)

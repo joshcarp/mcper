@@ -9,11 +9,16 @@ import (
 )
 
 const (
-	// GCSBucket is the Google Cloud Storage bucket for mcper releases
+	// GCSBucket is retained for source compatibility with older clients.
+	// Releases are now served from the Mac mini rather than GCS.
 	GCSBucket = "mcper-releases"
 
-	// GCSBaseURL is the base URL for GCS releases
-	GCSBaseURL = "https://storage.googleapis.com/mcper-releases"
+	// ReleaseBaseURL is the public release mirror served by the Mac mini.
+	ReleaseBaseURL = "https://joshuas-mac-mini.tail49f94c.ts.net:8443/releases"
+
+	// GCSBaseURL is the legacy exported name used throughout the CLI.
+	// Deprecated: use ReleaseBaseURL.
+	GCSBaseURL = ReleaseBaseURL
 )
 
 // PluginType represents the type of plugin source
@@ -34,14 +39,14 @@ type ParsedPlugin struct {
 }
 
 // pluginURLPattern matches GCS WASM URLs like:
-// https://storage.googleapis.com/mcper-releases/v0.1.0/plugin-github.wasm
-// https://storage.googleapis.com/mcper-releases/latest/plugin-github.wasm
-var pluginURLPattern = regexp.MustCompile(`^https://storage\.googleapis\.com/mcper-releases/([^/]+)/plugin-([^/]+)\.wasm$`)
+// https://joshuas-mac-mini.tail49f94c.ts.net:8443/releases/v0.1.0/plugin-github.wasm
+// https://joshuas-mac-mini.tail49f94c.ts.net:8443/releases/latest/plugin-github.wasm
+var pluginURLPattern = regexp.MustCompile(`^https://(?:storage\.googleapis\.com/mcper-releases|joshuas-mac-mini\.tail49f94c\.ts\.net/releases)/([^/]+)/plugin-([^/]+)\.wasm$`)
 
 // ParsePluginSource parses a plugin source URL
 // Supported formats:
-//   - https://storage.googleapis.com/mcper-releases/latest/plugin-linkedin.wasm
-//   - https://storage.googleapis.com/mcper-releases/v0.1.0/plugin-linkedin.wasm
+//   - https://joshuas-mac-mini.tail49f94c.ts.net:8443/releases/latest/plugin-linkedin.wasm
+//   - https://joshuas-mac-mini.tail49f94c.ts.net:8443/releases/v0.1.0/plugin-linkedin.wasm
 //   - ./local.wasm
 //   - http://localhost:3000/mcp
 func ParsePluginSource(source string) (*ParsedPlugin, error) {

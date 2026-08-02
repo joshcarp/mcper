@@ -221,7 +221,7 @@ type GetWorkItemParams struct {
 
 type CreateWorkItemParams struct {
 	Project     string `json:"project"`
-	Type        string `json:"type"`                   // Bug, Task, User Story, Feature, Epic
+	Type        string `json:"type"` // Bug, Task, User Story, Feature, Epic
 	Title       string `json:"title"`
 	Description string `json:"description,omitempty"`
 	AssignedTo  string `json:"assigned_to,omitempty"`
@@ -263,22 +263,22 @@ type CreatePullRequestParams struct {
 }
 
 type MergePullRequestParams struct {
-	Project          string `json:"project"`
-	Repository       string `json:"repository"`
-	PullRequestID    int    `json:"pull_request_id"`
-	MergeStrategy    string `json:"merge_strategy,omitempty"`    // squash, rebase, rebaseMerge, noFastForward (default: squash)
-	DeleteSourceBranch bool  `json:"delete_source_branch,omitempty"` // Delete source branch after merge
-	TransitionWorkItems bool `json:"transition_work_items,omitempty"` // Transition linked work items
+	Project             string `json:"project"`
+	Repository          string `json:"repository"`
+	PullRequestID       int    `json:"pull_request_id"`
+	MergeStrategy       string `json:"merge_strategy,omitempty"`        // squash, rebase, rebaseMerge, noFastForward (default: squash)
+	DeleteSourceBranch  bool   `json:"delete_source_branch,omitempty"`  // Delete source branch after merge
+	TransitionWorkItems bool   `json:"transition_work_items,omitempty"` // Transition linked work items
 }
 
 type AddPRCommentParams struct {
 	Project       string `json:"project"`
 	Repository    string `json:"repository"`
 	PullRequestID int    `json:"pull_request_id"`
-	Content       string `json:"content"`                   // Comment text (markdown supported)
-	FilePath      string `json:"file_path,omitempty"`       // Optional: file to comment on
-	LineNumber    int    `json:"line_number,omitempty"`     // Optional: line number for file comment
-	Status        string `json:"status,omitempty"`          // active, fixed, pending, won't fix, closed (default: active)
+	Content       string `json:"content"`               // Comment text (markdown supported)
+	FilePath      string `json:"file_path,omitempty"`   // Optional: file to comment on
+	LineNumber    int    `json:"line_number,omitempty"` // Optional: line number for file comment
+	Status        string `json:"status,omitempty"`      // active, fixed, pending, won't fix, closed (default: active)
 }
 
 type ListPRCommentsParams struct {
@@ -293,9 +293,9 @@ type ListWikisParams struct {
 
 type GetWikiPageParams struct {
 	Project        string `json:"project"`
-	WikiIdentifier string `json:"wiki_identifier"` // Wiki name or ID
-	Path           string `json:"path"`            // Page path (e.g., "/Home" or "/Getting Started/Overview")
-	Version        string `json:"version,omitempty"` // Git version (branch, tag, or commit)
+	WikiIdentifier string `json:"wiki_identifier"`           // Wiki name or ID
+	Path           string `json:"path"`                      // Page path (e.g., "/Home" or "/Getting Started/Overview")
+	Version        string `json:"version,omitempty"`         // Git version (branch, tag, or commit)
 	IncludeContent bool   `json:"include_content,omitempty"` // Include page content (default: true)
 }
 
@@ -1185,9 +1185,9 @@ func mergePullRequestHandler(ctx context.Context, req *mcp.CallToolRequest, inpu
 	}
 
 	payload := map[string]interface{}{
-		"status":                 "completed",
+		"status":                "completed",
 		"lastMergeSourceCommit": map[string]string{"commitId": existingPR.LastMergeSourceCommit.CommitID},
-		"completionOptions":      completionOptions,
+		"completionOptions":     completionOptions,
 	}
 
 	payloadBytes, _ := json.Marshal(payload)
@@ -1241,11 +1241,11 @@ func addPRCommentHandler(ctx context.Context, req *mcp.CallToolRequest, input Ad
 	// Map status string to API value
 	if args.Status != "" {
 		statusMap := map[string]int{
-			"active":    1,
-			"fixed":     2,
-			"wontfix":   3,
-			"closed":    4,
-			"pending":   6,
+			"active":  1,
+			"fixed":   2,
+			"wontfix": 3,
+			"closed":  4,
+			"pending": 6,
 		}
 		if statusVal, ok := statusMap[strings.ToLower(args.Status)]; ok {
 			thread["status"] = statusVal
@@ -1320,9 +1320,9 @@ func listPRCommentsHandler(ctx context.Context, req *mcp.CallToolRequest, input 
 				FilePath string `json:"filePath"`
 			} `json:"threadContext"`
 			Comments []struct {
-				ID        int    `json:"id"`
-				Content   string `json:"content"`
-				Author    struct {
+				ID      int    `json:"id"`
+				Content string `json:"content"`
+				Author  struct {
 					DisplayName string `json:"displayName"`
 				} `json:"author"`
 				PublishedDate string `json:"publishedDate"`
@@ -1487,11 +1487,11 @@ func getWikiPageHandler(ctx context.Context, req *mcp.CallToolRequest, input Get
 	}
 
 	var page struct {
-		ID         int    `json:"id"`
-		Path       string `json:"path"`
-		Content    string `json:"content"`
+		ID          int    `json:"id"`
+		Path        string `json:"path"`
+		Content     string `json:"content"`
 		GitItemPath string `json:"gitItemPath"`
-		SubPages   []struct {
+		SubPages    []struct {
 			Path string `json:"path"`
 		} `json:"subPages,omitempty"`
 		IsParentPage bool `json:"isParentPage"`
@@ -1898,11 +1898,11 @@ func listBuildsHandler(ctx context.Context, req *mcp.CallToolRequest, input List
 	var result struct {
 		Count int `json:"count"`
 		Value []struct {
-			ID         int    `json:"id"`
+			ID          int    `json:"id"`
 			BuildNumber string `json:"buildNumber"`
-			Status     string `json:"status"`
-			Result     string `json:"result"`
-			Definition struct {
+			Status      string `json:"status"`
+			Result      string `json:"result"`
+			Definition  struct {
 				Name string `json:"name"`
 			} `json:"definition"`
 			SourceBranch string `json:"sourceBranch"`

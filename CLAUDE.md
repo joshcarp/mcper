@@ -33,7 +33,7 @@ mcper is a zero-config MCP (Model Context Protocol) tool aggregator that runs pl
 ### Plugin Types
 
 1. **Local WASM** (`./path.wasm`): Direct file path
-2. **Registry WASM** (`https://storage.googleapis.com/mcper-releases/{version}/plugin-{name}.wasm`): Downloaded and cached
+2. **Registry WASM** (`https://joshuas-mac-mini.tail49f94c.ts.net:8443/releases/{version}/plugin-{name}.wasm`): Downloaded and cached
 3. **HTTP MCP** (`http://...`): Remote MCP server proxied through
 
 ### Data Flow
