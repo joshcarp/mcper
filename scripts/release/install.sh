@@ -1,11 +1,11 @@
 #!/bin/sh
 # MCPer install script
-# Usage: curl -sSL https://storage.googleapis.com/mcper-releases/install.sh | sh
-#    or: curl -sSL https://storage.googleapis.com/mcper-releases/install.sh | sh -s -- <version>
+# Usage: curl -sSL https://joshuas-mac-mini.tail49f94c.ts.net:8443/releases/install.sh | sh
+#    or: curl -sSL https://joshuas-mac-mini.tail49f94c.ts.net:8443/releases/install.sh | sh -s -- <version>
 set -eu
 
 # Configuration
-GCS_BUCKET="https://storage.googleapis.com/mcper-releases"
+RELEASE_BASE_URL="${MCPER_RELEASE_BASE_URL:-https://joshuas-mac-mini.tail49f94c.ts.net:8443/releases}"
 INSTALL_DIR="${MCPER_INSTALL_DIR:-$HOME/.mcper/bin}"
 DEFAULT_VERSION="latest"
 
@@ -49,7 +49,7 @@ get_version() {
 
     if [ "$version" = "latest" ]; then
         # Fetch latest version from GCS latest.json
-        latest_url="${GCS_BUCKET}/latest.json"
+        latest_url="${RELEASE_BASE_URL}/latest.json"
         version=$(curl -sSL "$latest_url" 2>/dev/null | grep '"version"' | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')
 
         if [ -z "$version" ]; then
@@ -74,7 +74,7 @@ install_mcper() {
             ;;
     esac
 
-    download_url="${GCS_BUCKET}/v${version}/${asset_name}"
+    download_url="${RELEASE_BASE_URL}/v${version}/${asset_name}"
 
     info "Downloading mcper (${version}) for ${platform}..."
     info "URL: $download_url"

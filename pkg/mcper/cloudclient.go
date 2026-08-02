@@ -57,8 +57,8 @@ type PendingApproval struct {
 // CloudClient is the cap-mint client. Authenticates with the CLI's
 // stored API key bearer token.
 type CloudClient struct {
-	creds  *Credentials
-	http   *http.Client
+	creds *Credentials
+	http  *http.Client
 }
 
 // NewCloudClient returns a client for the given credentials. http.Client

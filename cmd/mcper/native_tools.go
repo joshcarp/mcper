@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/joshcarp/mcper/pkg/mcper"
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/joshcarp/mcper/pkg/mcper"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

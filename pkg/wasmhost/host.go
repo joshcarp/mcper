@@ -319,4 +319,3 @@ func RunWasm(ctx context.Context, wasmBytes []byte) (io.Reader, io.Writer, error
 	// Return the communication pipe
 	return wasmToHostR, hostToWasmW, nil
 }
-

@@ -55,7 +55,7 @@ streams pass through faithfully.
 Examples:
   mcper bridge https://api.example.com/mcp
 
-  mcper bridge https://mcper-9161453686.us-central1.run.app/mcp \
+  mcper bridge https://joshuas-mac-mini.tail49f94c.ts.net:8443/mcp \
     --header "Authorization: Bearer $MCPER_TOKEN"
 
 Add to ~/.claude.json (or .mcp.json) as:
@@ -63,7 +63,7 @@ Add to ~/.claude.json (or .mcp.json) as:
     "mcpServers": {
       "mcper-cloud": {
         "command": "mcper",
-        "args": ["bridge", "https://mcper-9161453686.us-central1.run.app/mcp",
+        "args": ["bridge", "https://joshuas-mac-mini.tail49f94c.ts.net:8443/mcp",
                  "--header", "Authorization: Bearer YOUR_MCPER_TOKEN"]
       }
     }

@@ -18,8 +18,8 @@ type Credentials struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
-// DefaultCloudURL is the default mcper-cloud server URL
-const DefaultCloudURL = "https://mcper-9161453686.us-central1.run.app"
+// DefaultCloudURL is the self-hosted mcper-cloud server on the Mac mini.
+const DefaultCloudURL = "https://joshuas-mac-mini.tail49f94c.ts.net:8443"
 
 // GetCapProxyURL returns the URL of the cap-validated proxy on mcper-cloud
 // (PR 5). Used by the cap-aware HTTP client to route plugin egress through

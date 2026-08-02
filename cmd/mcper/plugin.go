@@ -92,8 +92,8 @@ func runPluginList(cmd *cobra.Command, args []string) error {
 
 	if pluginListJSON {
 		output := struct {
-			Local  []mcper.PluginConfig  `json:"local"`
-			Remote []mcper.RemoteServer  `json:"remote"`
+			Local  []mcper.PluginConfig `json:"local"`
+			Remote []mcper.RemoteServer `json:"remote"`
 		}{
 			Local:  config.Plugins,
 			Remote: remoteServers,
