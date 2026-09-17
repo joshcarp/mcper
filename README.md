@@ -41,8 +41,8 @@ Once `.mcper/start.sh` is committed, anyone who clones the repo will have mcper 
 | currency | Currency conversion - real-time rates | (none) |
 
 ```bash
-# List all available plugins
-mcper list
+# List all available plugins in the registry
+mcper registry list
 ```
 
 ## Commands
@@ -50,7 +50,8 @@ mcper list
 ```bash
 mcper init              # Initialize .mcper/start.sh
 mcper add <plugin>      # Add a plugin
-mcper list              # List available plugins
+mcper list              # List plugins configured in this project
+mcper registry list     # List available plugins in the registry
 mcper enable --claude   # Add to .mcp.json for Claude Code
 mcper serve             # Run MCP server (called by start.sh)
 mcper update            # Update mcper to latest version
