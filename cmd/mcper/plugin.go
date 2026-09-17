@@ -85,6 +85,18 @@ func runPluginList(cmd *cobra.Command, args []string) error {
 
 	if totalLocal == 0 && totalRemote == 0 {
 		fmt.Println("No plugins configured.")
+		fmt.Println("\nAvailable plugins:")
+		manifest, err := fetchPluginsManifest()
+		if err == nil && len(manifest.Plugins) > 0 {
+			for _, p := range manifest.Plugins {
+				fmt.Printf("  %s\n", p.Name)
+			}
+		} else {
+			// Hardcoded fallback list of known plugins
+			for _, name := range []string{"github", "gmail", "linkedin", "currency"} {
+				fmt.Printf("  %s\n", name)
+			}
+		}
 		fmt.Println("\nTo add a plugin: mcper add <name>")
 		fmt.Println("Or add servers in the cloud dashboard")
 		return nil
